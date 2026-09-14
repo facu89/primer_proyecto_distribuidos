@@ -72,14 +72,28 @@ class BarcoServicio:
             # Buscar a la central
             central_uri = ns.lookup("flota.central")
             central = Pyro5.api.Proxy(central_uri)
-            central.registrar_barco(self.id, self.nombre, self.host, self.port, self.latitud, self.longitud, self.rumbo, self.velocidad)
+            central._pyroTimeout = 5.0
+            resultado = central.registrar_barco(self.id, self.nombre, self.host, self.port, self.latitud, self.longitud, self.rumbo, self.velocidad)
             logging.info(f"Registrado exitosamente en la Central {self.central_uri}")
+
+            # Si la flota ya estaba en marcha, reincorporarse de inmediato al anillo
+            if isinstance(resultado, dict) and resultado.get("flota_formada"):
+                topologia = resultado["topologia"]
+                primario_id = resultado["primario_id"]
+                self.configurar_flota(topologia, primario_id)
+                logging.info(f"Reincorporado exitosamente a la flota activa. Primario actual: Barco {primario_id}")
+                
+                # Si mi ID es mayor que el primario actual, iniciar elección para restablecer liderazgo legítimo
+                if self.id > primario_id:
+                    logging.info(f"Mi ID ({self.id}) es mayor que el primario actual ({primario_id}). Iniciando elección...")
+                    time.sleep(1)
+                    threading.Thread(target=self._iniciar_eleccion, args=("Reincorporación de nodo líder con mayor ID",), daemon=True).start()
         except Exception as e:
             logging.error(f"Error al registrarse en la Central: {e}")
             sys.exit(1)
 
     def configurar_flota(self, topologia, primario_id):
-        """Invocado por la Central al hacer 'formar flota'."""
+        """Invocado por la Central al hacer 'formar flota' o al reincorporarse."""
         with lock:
             global reloj_logico
             reloj_logico += 1
@@ -107,6 +121,32 @@ class BarcoServicio:
             
         logging.info(f"Flota configurada. Primario actual: {primario_id}. Peers: {len(topologia)}")
         registrar_evento("Flota configurada por la Central", reloj_logico)
+        return True
+
+    def actualizar_topologia(self, nueva_topologia, reincorporado_id=None):
+        """Invocado por la Central cuando un nodo se reincorpora al anillo."""
+        with lock:
+            self.topologia = nueva_topologia
+            for p_id, p_uri in nueva_topologia:
+                self.peers_uris[p_id] = p_uri
+                if p_id not in self.estado_flota:
+                    self.estado_flota[p_id] = {
+                        "id": p_id,
+                        "latitud": 0.0,
+                        "longitud": 0.0,
+                        "rumbo": 0.0,
+                        "velocidad": 0.0,
+                        "activo": True,
+                        "es_primario": (p_id == self.primario_id),
+                        "lamport": reloj_logico
+                    }
+                else:
+                    self.estado_flota[p_id]["activo"] = True
+                self.ultimos_contactos[p_id] = time.time()
+                
+        logging.info(f"Topología del anillo actualizada: Barco {reincorporado_id} se reincorporó. Nodos: {len(nueva_topologia)}")
+        if self.es_primario:
+            self._replicar_estado(reloj_logico)
         return True
 
     # --- Operaciones de Estado y Lamport ---
@@ -273,11 +313,11 @@ class BarcoServicio:
             p_id, p_uri = self.topologia[(mi_pos + salto) % len(self.topologia)]
             try:
                 nodo = Pyro5.api.Proxy(p_uri)
-                nodo._pyroTimeout = 1.5
+                nodo._pyroTimeout = 3.0
                 getattr(nodo, metodo)(*args)
                 return p_id
-            except Exception:
-                logging.debug(f"Nodo {p_id} no responde al anillo, saltando...")
+            except Exception as e:
+                logging.debug(f"Nodo {p_id} no responde al anillo ({e}), saltando...")
         return None
 
     def _iniciar_eleccion(self, motivo):
@@ -291,6 +331,8 @@ class BarcoServicio:
         
         if a_quien is None:
             self._proclamar(self.id)
+            if self.es_primario:
+                self._asumir_como_primario()
             logging.info("No hay más nodos en el anillo, soy el primario absoluto.")
 
     def recibir_mensaje_eleccion(self, tipo, participantes, origen, numero):
@@ -302,12 +344,12 @@ class BarcoServicio:
                     self._asumir_como_primario()
                 with lock:
                     self.ultimo_anuncio = (ganador, origen, numero)
-                self._mandar_al_siguiente("recibir_mensaje_eleccion", "COORDINADOR", [ganador], origen, numero)
+                threading.Thread(target=self._mandar_al_siguiente, args=("recibir_mensaje_eleccion", "COORDINADOR", [ganador], origen, numero), daemon=True).start()
             else:
                 with lock:
                     self.en_eleccion = True
                 participantes.append(self.id)
-                self._mandar_al_siguiente("recibir_mensaje_eleccion", "ELECCION", participantes, origen, numero)
+                threading.Thread(target=self._mandar_al_siguiente, args=("recibir_mensaje_eleccion", "ELECCION", participantes, origen, numero), daemon=True).start()
                 
         elif tipo == "COORDINADOR":
             ganador = participantes[0]
@@ -315,7 +357,7 @@ class BarcoServicio:
                 repetido = (self.ultimo_anuncio == (ganador, origen, numero))
                 self.ultimo_anuncio = (ganador, origen, numero)
                 
-            if repetido: return # Dio la vuelta
+            if repetido: return True # Dio la vuelta
             
             if self._proclamar(ganador):
                 if ganador == self.id:
@@ -324,7 +366,8 @@ class BarcoServicio:
                     logging.info(f"Nuevo primario establecido: {ganador}")
                     
             if self.id != origen:
-                self._mandar_al_siguiente("recibir_mensaje_eleccion", "COORDINADOR", [ganador], origen, numero)
+                threading.Thread(target=self._mandar_al_siguiente, args=("recibir_mensaje_eleccion", "COORDINADOR", [ganador], origen, numero), daemon=True).start()
+        return True
 
     def _proclamar(self, ganador):
         with lock:

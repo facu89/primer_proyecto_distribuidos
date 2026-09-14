@@ -29,6 +29,8 @@ flota_formada = False
 estado_flota = {}
 eventos_lamport = []
 solicitudes_recibidas = []
+NS_HOST = "127.0.0.1"
+NS_PORT = 9090
 
 @Pyro5.api.expose
 class CentralServicio:
@@ -46,7 +48,55 @@ class CentralServicio:
             "es_primario": False
         }
         logging.info(f"Barco {barco_id} '{nombre}' registrado desde {host}:{port}")
-        return True
+
+        if flota_formada:
+            logging.info(f"Flota ya en marcha. Reincorporando Barco {barco_id} al anillo...")
+            ns = Pyro5.api.locate_ns(host=NS_HOST, port=NS_PORT)
+            ids_ordenados = sorted(list(barcos_registrados.keys()))
+            topologia = []
+            for b_id in ids_ordenados:
+                try:
+                    uri = ns.lookup(f"flota.barco.{b_id}")
+                    topologia.append((b_id, uri))
+                except Exception as e:
+                    logging.warning(f"No se pudo resolver URI de Barco {b_id} en NS: {e}")
+
+            primario_id = None
+            try:
+                prim_uri = ns.lookup("flota.primario")
+                for b_id, uri in topologia:
+                    if uri == prim_uri:
+                        primario_id = b_id
+                        break
+            except Exception:
+                pass
+
+            if not primario_id:
+                candidatos = [b_id for b_id in ids_ordenados if b_id != barco_id and barcos_registrados[b_id].get("activo")]
+                primario_id = max(candidatos) if candidatos else barco_id
+
+            # Actualizar topología en todos los demás barcos
+            for b_id, uri in topologia:
+                if b_id == barco_id: continue
+                try:
+                    p = Pyro5.api.Proxy(uri)
+                    p._pyroTimeout = 2.0
+                    p.actualizar_topologia(topologia, barco_id)
+                except Exception as e:
+                    logging.warning(f"No se pudo notificar topología a Barco {b_id}: {e}")
+
+            barcos_registrados[barco_id]["activo"] = True
+            barcos_registrados[barco_id]["es_primario"] = (barco_id == primario_id)
+            estado_flota.update(barcos_registrados)
+            eventos_lamport.append((0, time.time(), f"Barco {barco_id} reincorporado a la flota activa"))
+
+            return {
+                "flota_formada": True,
+                "topologia": topologia,
+                "primario_id": primario_id
+            }
+
+        return {"flota_formada": False}
 
     def recibir_solicitud(self, accion, datos, barco_origen, lamport):
         solicitudes_recibidas.append({
@@ -259,6 +309,10 @@ def main():
 
     if args.host in ("0.0.0.0", ""):
         args.host = obtener_ip_local()
+
+    global NS_HOST, NS_PORT
+    NS_HOST = args.host
+    NS_PORT = args.ns_port
 
     # Iniciar Name Server embebido en hilo secundario
     ns_uri, ns_daemon, ns_bc_server = Pyro5.nameserver.start_ns(host=args.host, port=args.ns_port)
