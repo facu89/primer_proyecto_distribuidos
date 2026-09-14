@@ -3,6 +3,7 @@ import logging
 import threading
 import time
 import sys
+import socket
 import Pyro5.api
 import Pyro5.nameserver
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -10,6 +11,17 @@ import json
 import os
 
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [CENTRAL] %(message)s', datefmt='%H:%M:%S')
+
+def obtener_ip_local():
+    """Detecta la IP de red local (LAN) de esta máquina."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
 
 # Estado global de la Central
 barcos_registrados = {}
@@ -22,13 +34,16 @@ solicitudes_recibidas = []
 class CentralServicio:
     def registrar_barco(self, barco_id, nombre, host, port, lat, lon, rumbo, vel):
         barcos_registrados[barco_id] = {
+            "id": barco_id,
             "nombre": nombre,
             "host": host,
             "port": port,
             "lat": lat,
             "lon": lon,
             "rumbo": rumbo,
-            "vel": vel
+            "vel": vel,
+            "activo": True,
+            "es_primario": False
         }
         logging.info(f"Barco {barco_id} '{nombre}' registrado desde {host}:{port}")
         return True
@@ -42,18 +57,38 @@ class CentralServicio:
             "timestamp": time.time()
         })
         logging.info(f"[L:{lamport}] Recibida solicitud '{accion}' del barco {barco_origen}")
-        eventos_lamport.append((lamport, time.time(), f"Solicitud '{accion}' recibida"))
+        eventos_lamport.append((lamport, time.time(), f"Solicitud '{accion}' recibida del Barco {barco_origen}"))
         return {"recibido": True}
 
     def notificar_nuevo_primario(self, primario_id):
-        logging.info(f"Nuevo primario notificado: {primario_id}")
+        global estado_flota
+        viejo_primario = None
+        for b_id, b_data in barcos_registrados.items():
+            if b_data.get("es_primario") and b_id != primario_id:
+                viejo_primario = b_id
+                b_data["es_primario"] = False
+                b_data["activo"] = False # El primario anterior cayó, lo que motivó la elección
+
+        if primario_id in barcos_registrados:
+            barcos_registrados[primario_id]["es_primario"] = True
+            barcos_registrados[primario_id]["activo"] = True
+
+        estado_flota = barcos_registrados.copy()
+        
+        msg = f"Cambio de mando: Nuevo Coordinador electo -> Barco {primario_id}"
+        if viejo_primario:
+            msg += f" (Barco {viejo_primario} desconectado / inactivo)"
+            logging.warning(f"Primario anterior {viejo_primario} marcado como INACTIVO/HUNDIDO")
+        
+        logging.info(f"Nuevo primario registrado en Central: Barco {primario_id}")
+        eventos_lamport.append((0, time.time(), msg))
         return True
 
     def obtener_barcos_registrados(self):
         return barcos_registrados
 
 def formar_flota(ns_host, ns_port):
-    global flota_formada
+    global flota_formada, estado_flota
     if flota_formada:
         print("La flota ya está formada.")
         return
@@ -93,13 +128,22 @@ def formar_flota(ns_host, ns_port):
         except Exception as e:
             logging.error(f"Error configurando barco {b_id}: {e}")
 
+    # Marcar estados en la central
+    for b_id in ids_ordenados:
+        barcos_registrados[b_id]["es_primario"] = (b_id == primario_id)
+        barcos_registrados[b_id]["activo"] = True
+    estado_flota = barcos_registrados.copy()
+    eventos_lamport.append((0, time.time(), f"Flota formada. Primario inicial: Barco {primario_id}"))
+
     flota_formada = True
-    logging.info("Flota formada exitosamente.")
+    logging.info(f"Flota formada exitosamente. Primario inicial: Barco {primario_id}")
 
 def hilo_polling(ns_host, ns_port):
     """Consulta periódicamente al primario para obtener el estado de la flota."""
+    global estado_flota
+    fallos_primario = 0
     while True:
-        time.sleep(5) # Hacemos polling más rápido para el dashboard (5s en vez de 30s)
+        time.sleep(3) # Polling cada 3 segundos
         if not flota_formada: continue
         
         try:
@@ -108,23 +152,40 @@ def hilo_polling(ns_host, ns_port):
             try:
                 primario_uri = ns.lookup("flota.primario")
             except Exception:
-                # Si falla, intentamos más tarde
+                fallos_primario += 1
+                if fallos_primario >= 2:
+                    for b_id, b_data in barcos_registrados.items():
+                        if b_data.get("es_primario") and b_data.get("activo"):
+                            b_data["activo"] = False
+                            logging.warning(f"Primario {b_id} no localizado en NS. Marcado como INACTIVO")
+                            eventos_lamport.append((0, time.time(), f"Alerta: Primario Barco {b_id} no responde en NS"))
+                    estado_flota = barcos_registrados.copy()
                 continue
                 
             primario = Pyro5.api.Proxy(primario_uri)
             primario._pyroTimeout = 2.0
             
             nuevo_estado = primario.obtener_estado_flota()
+            fallos_primario = 0
             
-            global estado_flota
             # Actualizamos barcos_registrados con el estado en vivo
             for b_id, estado in nuevo_estado.items():
-                if b_id in barcos_registrados:
+                b_id_int = int(b_id) if str(b_id).isdigit() else b_id
+                if b_id_int in barcos_registrados:
+                    barcos_registrados[b_id_int].update(estado)
+                elif b_id in barcos_registrados:
                     barcos_registrados[b_id].update(estado)
-            estado_flota = barcos_registrados
+            estado_flota = barcos_registrados.copy()
             
         except Exception as e:
-            pass # logging.debug(f"Error en polling al primario: {e}")
+            fallos_primario += 1
+            if fallos_primario >= 2:
+                for b_id, b_data in barcos_registrados.items():
+                    if b_data.get("es_primario") and b_data.get("activo"):
+                        b_data["activo"] = False
+                        logging.warning(f"Primario {b_id} no responde en polling. Marcado como INACTIVO")
+                        eventos_lamport.append((0, time.time(), f"Alerta: Primario Barco {b_id} desconectado"))
+                estado_flota = barcos_registrados.copy()
 
 # --- Servidor HTTP para el Dashboard ---
 
@@ -189,11 +250,15 @@ def cmd_loop(ns_host, ns_port):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--host", default=obtener_ip_local(),
+                        help="IP en la que escucha la Central (default: IP de red local)")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--ns-port", type=int, default=9090)
     parser.add_argument("--http-port", type=int, default=5000)
     args = parser.parse_args()
+
+    if args.host in ("0.0.0.0", ""):
+        args.host = obtener_ip_local()
 
     # Iniciar Name Server embebido en hilo secundario
     ns_uri, ns_daemon, ns_bc_server = Pyro5.nameserver.start_ns(host=args.host, port=args.ns_port)

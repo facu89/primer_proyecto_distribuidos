@@ -438,8 +438,8 @@
     }
 
     function createShipIcon(ship) {
-        const isPrimary = ship.es_primario;
         const isOffline = (ship.activo === false);
+        const isPrimary = (ship.es_primario && !isOffline);
         const heading = (ship.rumbo || 0);
 
         const color = isPrimary ? '#ffffff' : (isOffline ? '#ff3333' : '#33ff33');
@@ -543,7 +543,7 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
                 if (lat === undefined || lon === undefined) continue;
 
                 if (ship.activo !== false) activeCount++;
-                if (ship.es_primario) primaryShip = ship;
+                if (ship.es_primario && ship.activo !== false) primaryShip = ship;
 
                 validCoords.push([lat, lon]);
 

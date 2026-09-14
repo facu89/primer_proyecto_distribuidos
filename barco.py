@@ -12,6 +12,17 @@ import socket
 # Configuración de logs
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(message)s', datefmt='%H:%M:%S')
 
+def obtener_ip_local():
+    """Detecta la IP de red local (LAN) de esta máquina."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
 # Reloj de Lamport y eventos
 reloj_logico = 0
 eventos = []
@@ -47,6 +58,7 @@ class BarcoServicio:
         
         # Estado de toda la flota (solo el primario lo mantiene completo)
         self.estado_flota = {}
+        self.ultimos_contactos = {} # id -> timestamp del último mensaje/posición recibido
 
     # --- Métodos de ciclo de vida e inicialización ---
     
@@ -81,7 +93,17 @@ class BarcoServicio:
             # Inicializar estado_flota si soy el primario
             if self.es_primario:
                 for p_id, p_uri in topologia:
-                    self.estado_flota[p_id] = {"activo": True, "lamport": reloj_logico}
+                    self.estado_flota[p_id] = {
+                        "id": p_id,
+                        "latitud": self.latitud if p_id == self.id else 0.0,
+                        "longitud": self.longitud if p_id == self.id else 0.0,
+                        "rumbo": self.rumbo if p_id == self.id else 0.0,
+                        "velocidad": self.velocidad if p_id == self.id else 0.0,
+                        "activo": True,
+                        "es_primario": (p_id == self.id),
+                        "lamport": reloj_logico
+                    }
+                    self.ultimos_contactos[p_id] = time.time()
             
         logging.info(f"Flota configurada. Primario actual: {primario_id}. Peers: {len(topologia)}")
         registrar_evento("Flota configurada por la Central", reloj_logico)
@@ -113,8 +135,11 @@ class BarcoServicio:
     def obtener_estado_flota(self):
         """Invocado por la Central para leer todo el estado (solo si es primario)."""
         if not self.es_primario:
-            raise Exception("No soy el primario")
-        return self.estado_flota
+            raise Exception(f"Barco {self.id} no es el primario")
+        with lock:
+            for b_id, b_data in self.estado_flota.items():
+                b_data["es_primario"] = (b_id == self.id)
+            return dict(self.estado_flota)
 
     def obtener_log_eventos(self):
         return eventos
@@ -196,16 +221,26 @@ class BarcoServicio:
         
         l_actual = self._actualizar_lamport(remoto_lamport)
         with lock:
+            self.ultimos_contactos[barco_id] = time.time()
             if barco_id not in self.estado_flota:
                 self.estado_flota[barco_id] = {}
+            
+            estaba_inactivo = (self.estado_flota[barco_id].get("activo") is False)
+
             self.estado_flota[barco_id].update({
+                "id": barco_id,
                 "latitud": lat,
                 "longitud": lon,
                 "rumbo": rumbo,
                 "velocidad": vel,
                 "activo": True,
+                "es_primario": (barco_id == self.id),
                 "lamport": l_actual
             })
+            if estaba_inactivo:
+                logging.info(f"Barco {barco_id} ha restablecido contacto. Estado: ACTIVO.")
+                registrar_evento(f"Barco {barco_id} reconectado / activo", l_actual)
+
             # Actualizo mi propio estado si soy yo
             if barco_id == self.id:
                 self.latitud = lat
@@ -217,8 +252,11 @@ class BarcoServicio:
 
     # --- Heartbeat y Elección en Anillo ---
     
-    def heartbeat(self):
-        """Responde True si está vivo."""
+    def heartbeat(self, barco_origen=None):
+        """Responde True si está vivo y actualiza último contacto."""
+        if barco_origen is not None:
+            with lock:
+                self.ultimos_contactos[barco_origen] = time.time()
         return True
 
     def _mandar_al_siguiente(self, metodo, *args):
@@ -299,12 +337,38 @@ class BarcoServicio:
 
     def _asumir_como_primario(self):
         logging.info("Asumiendo el rol de PRIMARIO.")
-        # Reconstruir estado_flota si no lo tengo completo
-        if not self.estado_flota:
-             self.estado_flota = {self.id: self.obtener_estado()}
+        with lock:
+            global reloj_logico
+            reloj_logico += 1
+            l_act = reloj_logico
+            self.es_primario = True
+            self.primario_id = self.id
+            
+            # Reconstruir estado_flota si estuviera incompleto
+            if not self.estado_flota:
+                self.estado_flota = {self.id: self.obtener_estado()}
+                
+            ahora = time.time()
+            # Marcar al primario caído y nodos que no respondieron como inactivos
+            for p_id in list(self.estado_flota.keys()):
+                if p_id != self.id:
+                    ultimo = self.ultimos_contactos.get(p_id, 0)
+                    if ahora - ultimo > 6.0:
+                        self.estado_flota[p_id]["activo"] = False
+                    self.estado_flota[p_id]["es_primario"] = False
+            
+            self.estado_flota[self.id]["activo"] = True
+            self.estado_flota[self.id]["es_primario"] = True
+            self.estado_flota[self.id]["lamport"] = l_act
+            self.ultimos_contactos[self.id] = ahora
+            
+        registrar_evento(f"Asumido rol de PRIMARIO / Coordinador", l_act)
+        self._replicar_estado(l_act)
+
         # Actualizar en NS y notificar a Central
         try:
-            ns = Pyro5.api.locate_ns(host=self.central_uri.split(":")[0], port=int(self.central_uri.split(":")[1]))
+            ns_host, ns_port = self.central_uri.split(":")
+            ns = Pyro5.api.locate_ns(host=ns_host, port=int(ns_port))
             try:
                 ns.remove("flota.primario")
             except Exception: pass
@@ -317,6 +381,7 @@ class BarcoServicio:
             central = Pyro5.api.Proxy(central_uri)
             central._pyroTimeout = 2.0
             central.notificar_nuevo_primario(self.id)
+            logging.info(f"Central notificada exitosamente del nuevo primario {self.id}")
         except Exception as e:
             logging.error(f"Error al notificar nuevo rol a la Central: {e}")
 
@@ -356,15 +421,32 @@ def hilo_movimiento(barco):
                     pass
 
 def hilo_vigilante(barco):
-    """Vigila heartbeats y latidos del primario."""
-    TIMEOUT = 6.0
+    """Vigila heartbeats y latidos del primario y de los backups."""
+    TIMEOUT_PRIMARIO = 6.0
+    TIMEOUT_BACKUP = 9.0
     while True:
         time.sleep(1)
         if not barco.topologia: continue
         
         if barco.es_primario:
-            # Primario verifica a los demás para marcarlos inactivos (opcional)
-            pass
+            ahora = time.time()
+            hubo_cambio = False
+            with lock:
+                global reloj_logico
+                for p_id, p_uri in barco.topologia:
+                    if p_id == barco.id: continue
+                    ultimo = barco.ultimos_contactos.get(p_id, ahora)
+                    if ahora - ultimo > TIMEOUT_BACKUP:
+                        if p_id in barco.estado_flota and barco.estado_flota[p_id].get("activo", True):
+                            barco.estado_flota[p_id]["activo"] = False
+                            reloj_logico += 1
+                            barco.estado_flota[p_id]["lamport"] = reloj_logico
+                            l_act = reloj_logico
+                            hubo_cambio = True
+                            logging.warning(f"TIMEOUT: Barco {p_id} no responde hace {ahora - ultimo:.1f}s. Marcado como INACTIVO/HUNDIDO.")
+                            registrar_evento(f"Barco {p_id} sin senal, marcado como INACTIVO", l_act)
+            if hubo_cambio:
+                barco._replicar_estado(reloj_logico)
         else:
             # Backup vigila al primario
             with lock:
@@ -373,15 +455,15 @@ def hilo_vigilante(barco):
                 
             if en_eleccion: continue
             
-            if silencio > TIMEOUT:
+            if silencio > TIMEOUT_PRIMARIO:
                 barco._iniciar_eleccion("El primario no responde")
             else:
-                # Enviar heartbeat al primario
+                # Enviar heartbeat al primario informando origen
                 if barco.primario_id and barco.primario_id in barco.peers_uris:
                     try:
                         prim = Pyro5.api.Proxy(barco.peers_uris[barco.primario_id])
                         prim._pyroTimeout = 1.0
-                        prim.heartbeat()
+                        prim.heartbeat(barco.id)
                     except Exception:
                         pass # El silencio se acumulará y disparará elección
 
@@ -408,7 +490,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("id", type=int)
     parser.add_argument("--nombre", required=True)
-    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--host", default=obtener_ip_local(),
+                        help="IP en la que escucha este barco (default: IP de red local)")
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--central", required=True, help="IP:Port del Name Server en la Central")
     parser.add_argument("--lat", type=float, default=0.0)
@@ -416,6 +499,9 @@ def main():
     parser.add_argument("--rumbo", type=float, default=0.0)
     parser.add_argument("--vel", type=float, default=0.0)
     args = parser.parse_args()
+
+    if args.host in ("0.0.0.0", ""):
+        args.host = obtener_ip_local()
 
     ns_host, ns_port = args.central.split(":")
     Pyro5.config.NS_HOST = ns_host

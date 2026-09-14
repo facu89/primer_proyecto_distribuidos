@@ -23,45 +23,73 @@ Asegúrate de contar con Python 3.8+ instalado.
 pip install Pyro5
 ```
 
-## Guía Paso a Paso para la Ejecución
+## Guía de Ejecución
 
-Abre 4 terminales independientes.
+El sistema puede ejecutarse en una **única máquina** (usando múltiples terminales) o **distribuido entre varias computadoras** en la misma red LAN/Wi-Fi.
 
-### Paso 1: Iniciar la Central Naval (Terminal 1)
+> **Importante para ejecución multi-máquina (Red Local):**
+> 1. Asegúrate de que las máquinas estén en la misma red y puedan hacerse `ping`.
+> 2. En Windows, verifica que el **Firewall de Windows** no bloquee Python (o permite conexiones entrantes en el perfil de red Privada para los puertos de la Central: `9090`, `8080`, `5000` y de los barcos: `9001`, `9002`, etc.).
+> 3. Tanto `central.py` como `barco.py` auto-detectan la IP de red local de la máquina de forma automática.
 
-Inicia la Central. Esto levantará el Name Server embebido en el puerto 9090, el servidor HTTP en el puerto 5000 y la interfaz en consola.
+---
 
+### Opción A: Ejecución en Múltiples Computadoras (Distribuida Real)
+
+#### 1. En la Computadora 1 (Servidor / Central):
+Ejecuta la Central sin parámetros o con los puertos deseados:
 ```bash
-python central.py --host 0.0.0.0 --port 8080 --ns-port 9090 --http-port 5000
+python central.py
 ```
+*(Al iniciar, la Central imprimirá su IP detectada en la LAN, por ejemplo `10.15.3.106`, el Name Server en el puerto 9090 y el Dashboard en el puerto 5000).*
 
-### Paso 2: Iniciar los Barcos (Terminales 2, 3 y 4)
+#### 2. En la Computadora 2 (y/o Computadora 3, Barcos remotos):
+Ejecuta cada barco indicando la IP de la Computadora 1 en `--central`:
+```bash
+# En Computadora 2 (Barco 2):
+python barco.py 2 --nombre "Fragata Beta" --port 9002 --central 10.15.3.106:9090 --lat -20.0 --lon -35.0 --rumbo 135 --vel 18.0
 
-Los barcos se conectarán a la central para registrarse.
+# En Computadora 3 (Barco 3):
+python barco.py 3 --nombre "Corbeta Gamma" --port 9003 --central 10.15.3.106:9090 --lat 10.0 --lon -20.0 --rumbo 210 --vel 12.0
+```
+*(El barco auto-detectará la IP de la máquina donde corre y registrará su URI accesible hacia los demás).*
 
-- **Terminal 2 (Barco 1):**
-  ```bash
-  python barco.py 1 --nombre "Destructor Alfa" --port 9001 --central 127.0.0.1:9090 --lat -34.6 --lon -58.4 --rumbo 45 --vel 12.5
-  ```
-
-- **Terminal 3 (Barco 2):**
-  ```bash
-  python barco.py 2 --nombre "Fragata Beta" --port 9002 --central 127.0.0.1:9090 --lat -25.3 --lon -10.2 --rumbo 175 --vel 9.1
-  ```
-
-- **Terminal 4 (Barco 3):**
-  ```bash
-  python barco.py 3 --nombre "Corbeta Gamma" --port 9003 --central 127.0.0.1:9090 --lat 20.0 --lon 125.0 --rumbo 160 --vel 4.1
-  ```
-
-### Paso 3: Formar la Flota
-
-En la consola de la Central (Terminal 1), tipea:
-
+#### 3. Formar la Flota:
+Una vez que veas en la consola de la Central que todos los barcos se registraron, en la consola de la Central escribe:
 ```bash
 > formar flota
 ```
-Esto informará a los barcos de la topología y se iniciarán los mecanismos de replicación y heartbeats.
+
+---
+
+### Opción B: Ejecución Rápida en una Sola Computadora (Localhost)
+
+Puedes usar el script automatizado:
+```bash
+iniciar_demo.bat
+```
+O abrir 4 terminales manualmente:
+
+- **Terminal 1 (Central):**
+  ```bash
+  python central.py --host 127.0.0.1
+  ```
+- **Terminal 2 (Barco 1):**
+  ```bash
+  python barco.py 1 --nombre "Destructor Alfa" --host 127.0.0.1 --port 9001 --central 127.0.0.1:9090 --lat -34.6 --lon -58.4 --rumbo 45 --vel 14.5
+  ```
+- **Terminal 3 (Barco 2):**
+  ```bash
+  python barco.py 2 --nombre "Fragata Beta" --host 127.0.0.1 --port 9002 --central 127.0.0.1:9090 --lat -20.0 --lon -35.0 --rumbo 135 --vel 18.0
+  ```
+- **Terminal 4 (Barco 3):**
+  ```bash
+  python barco.py 3 --nombre "Corbeta Gamma" --host 127.0.0.1 --port 9003 --central 127.0.0.1:9090 --lat 10.0 --lon -20.0 --rumbo 210 --vel 12.0
+  ```
+
+---
+
+### Paso Siguiente: Dashboard y Monitoreo
 
 ### Paso 4: Visualizar el Dashboard
 
