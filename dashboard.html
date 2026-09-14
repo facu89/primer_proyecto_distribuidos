@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Naval Fleet Command - Tactical Display</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
+        :root {
+            --crtt-green: #33ff00;
+            --crt-dark: #051a05;
+            --crt-glow: rgba(51, 255, 0, 0.4);
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            font-family: 'Share Tech Mono', monospace;
+            overflow: hidden;
+            color: var(--crtt-green);
+        }
+
+        .crt-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at center, var(--crt-dark) 0%, #000 100%);
+        }
+
+        /* Scanlines */
+        .crt-container::before {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            z-index: 2;
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none;
+        }
+
+        /* Vignette */
+        .crt-container::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            box-shadow: inset 0 0 100px rgba(0,0,0,0.9);
+            z-index: 3;
+            pointer-events: none;
+        }
+
+        .hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            font-size: 16px;
+            line-height: 1.5;
+            text-shadow: 0 0 5px var(--crt-glow);
+            border: 1px solid var(--crtt-green);
+            padding: 10px;
+            background: rgba(0,25,0,0.5);
+        }
+
+        #map-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        .ship-label {
+            position: absolute;
+            border: 1px solid var(--crtt-green);
+            padding: 5px;
+            background: rgba(0,25,0,0.7);
+            font-size: 12px;
+            white-space: pre;
+            z-index: 5;
+            pointer-events: none;
+            text-shadow: 0 0 3px var(--crt-glow);
+            box-shadow: 0 0 5px var(--crt-glow);
+            transition: left 1s linear, top 1s linear;
+        }
+        
+        .ship-label.primary {
+            border: 2px solid #fff;
+            color: #fff;
+            text-shadow: 0 0 8px #fff;
+        }
+        
+        .ship-label.inactive {
+            border-color: #f33;
+            color: #f33;
+            text-shadow: 0 0 3px #f00;
+        }
+
+    </style>
+</head>
+<body>
+
+<div class="crt-container">
+    <div class="hud" id="hud">
+        RANGE 10.0 NM<br>
+        MODE: C-UP<br>
+        TIME: <span id="clock">00:00:00 UTC</span><br>
+        <span id="date">01 JAN 2024</span>
+    </div>
+    <canvas id="map-canvas"></canvas>
+    <div id="labels-container"></div>
+</div>
+
+<script>
+    // --- Reloj HUD ---
+    function updateClock() {
+        const now = new Date();
+        document.getElementById('clock').innerText = now.toISOString().substring(11, 19) + ' UTC';
+        const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+        document.getElementById('date').innerText = `${now.getUTCDate()} ${months[now.getUTCMonth()]} ${now.getUTCFullYear()}`;
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // --- Mapa y Canvas ---
+    const canvas = document.getElementById('map-canvas');
+    const ctx = canvas.getContext('2d');
+    
+    function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // Proyección simple Equirectangular (Lat/Lon a X/Y)
+    function geoToPixel(lat, lon) {
+        // Asumimos un mapa mundial centrado
+        // Lon: -180 a 180 -> X: 0 a width
+        // Lat: 90 a -90 -> Y: 0 a height
+        const x = (lon + 180) * (canvas.width / 360);
+        const y = (90 - lat) * (canvas.height / 180);
+        return { x, y };
+    }
+
+    // --- Dibujo del Mapa (aproximación visual) ---
+    function drawMap() {
+        ctx.fillStyle = '#0a2a0a';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.strokeStyle = 'rgba(51, 255, 0, 0.3)';
+        ctx.lineWidth = 1;
+        
+        // Grilla (Lat/Lon)
+        for(let i=0; i<360; i+=30) {
+            let x = i * (canvas.width / 360);
+            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+        }
+        for(let i=0; i<180; i+=30) {
+            let y = i * (canvas.height / 180);
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+        }
+    }
+
+    // --- Actualización de Barcos ---
+    let shipsData = {};
+
+    async function fetchState() {
+        try {
+            const res = await fetch('/api/estado');
+            if (res.ok) {
+                shipsData = await res.json();
+                renderRadar();
+            }
+        } catch (e) {
+            console.log("Error fetching state:", e);
+        }
+    }
+
+    function renderRadar() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawMap();
+        
+        const labelsContainer = document.getElementById('labels-container');
+        // No borramos todo, actualizamos o creamos para animar
+        
+        const currentIds = new Set(Object.keys(shipsData));
+        
+        // Limpiar labels viejos
+        Array.from(labelsContainer.children).forEach(child => {
+            if (!currentIds.has(child.dataset.id)) {
+                labelsContainer.removeChild(child);
+            }
+        });
+
+        for (const [id, ship] of Object.entries(shipsData)) {
+            const pos = geoToPixel(ship.latitud || ship.lat, ship.longitud || ship.lon);
+            
+            // Dibujar silueta en canvas
+            ctx.save();
+            ctx.translate(pos.x, pos.y);
+            
+            // Flecha de rumbo
+            if (ship.activo) {
+                ctx.rotate(ship.rumbo * Math.PI / 180);
+                ctx.strokeStyle = 'rgba(51, 255, 0, 0.8)';
+                ctx.beginPath();
+                ctx.moveTo(0, -10);
+                ctx.lineTo(0, -60); // Largo de la flecha
+                ctx.stroke();
+                // Punta
+                ctx.beginPath();
+                ctx.moveTo(-3, -50);
+                ctx.lineTo(0, -60);
+                ctx.lineTo(3, -50);
+                ctx.stroke();
+                ctx.rotate(-ship.rumbo * Math.PI / 180);
+            }
+
+            // Ícono del barco
+            ctx.fillStyle = ship.es_primario ? '#fff' : (ship.activo ? '#33ff00' : '#f33');
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = ctx.fillStyle;
+            ctx.beginPath();
+            ctx.arc(0, 0, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+
+            // Actualizar o crear Label
+            let label = document.getElementById('label-' + id);
+            if (!label) {
+                label = document.createElement('div');
+                label.id = 'label-' + id;
+                label.className = 'ship-label';
+                label.dataset.id = id;
+                labelsContainer.appendChild(label);
+            }
+            
+            label.style.left = (pos.x + 15) + 'px';
+            label.style.top = (pos.y + 15) + 'px';
+            
+            let classStr = 'ship-label';
+            if (ship.es_primario) classStr += ' primary';
+            if (!ship.activo) classStr += ' inactive';
+            label.className = classStr;
+            
+            const latStr = (ship.latitud||ship.lat) >= 0 ? `N${(ship.latitud||ship.lat).toFixed(2)}°` : `S${Math.abs((ship.latitud||ship.lat)).toFixed(2)}°`;
+            const lonStr = (ship.longitud||ship.lon) >= 0 ? `E${(ship.longitud||ship.lon).toFixed(2)}°` : `W${Math.abs((ship.longitud||ship.lon)).toFixed(2)}°`;
+            
+            let text = `[SHIP ${id}] ${ship.nombre}`;
+            if (ship.es_primario) text += ' (PRIM)';
+            if (!ship.activo) text += ' [OFFLINE]';
+            text += `\nCOG ${(ship.rumbo).toFixed(0).padStart(3,'0')}°\nSOG ${(ship.vel || ship.velocidad).toFixed(1)}kn\nPOS ${latStr}\n    ${lonStr}`;
+            text += `\nL: ${ship.lamport || 0}`;
+            
+            label.innerText = text;
+        }
+    }
+
+    // Polling cada 3 segundos
+    setInterval(fetchState, 3000);
+    fetchState();
+    drawMap();
+
+</script>
+</body>
+</html>
