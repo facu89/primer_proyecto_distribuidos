@@ -53,11 +53,13 @@ class BarcoServicio:
     def registrar_en_central(self, mi_uri):
         """Se conecta a la central para registrarse al inicio."""
         try:
-            ns = Pyro5.api.locate_ns(host=self.central_uri.split(":")[0], port=int(self.central_uri.split(":")[1]))
+            ns_host, ns_port = self.central_uri.split(":")
+            ns = Pyro5.api.locate_ns(host=ns_host, port=int(ns_port))
             ns.register(f"flota.barco.{self.id}", mi_uri)
             
             # Buscar a la central
-            central = Pyro5.api.Proxy("PYN:flota.central")
+            central_uri = ns.lookup("flota.central")
+            central = Pyro5.api.Proxy(central_uri)
             central.registrar_barco(self.id, self.nombre, self.host, self.port, self.latitud, self.longitud, self.rumbo, self.velocidad)
             logging.info(f"Registrado exitosamente en la Central {self.central_uri}")
         except Exception as e:
@@ -155,7 +157,10 @@ class BarcoServicio:
     def _elevar_solicitud_central(self, accion, datos, barco_origen, lamport):
         """El primario envía la solicitud a la central."""
         try:
-            central = Pyro5.api.Proxy("PYN:flota.central")
+            ns_host, ns_port = self.central_uri.split(":")
+            ns = Pyro5.api.locate_ns(host=ns_host, port=int(ns_port))
+            central_uri = ns.lookup("flota.central")
+            central = Pyro5.api.Proxy(central_uri)
             central._pyroTimeout = 2.0
             central.recibir_solicitud(accion, datos, barco_origen, lamport)
             registrar_evento(f"Acción '{accion}' elevada a la Central", lamport)
@@ -308,7 +313,8 @@ class BarcoServicio:
             if mi_uri:
                 ns.register("flota.primario", mi_uri)
                 
-            central = Pyro5.api.Proxy("PYN:flota.central")
+            central_uri = ns.lookup("flota.central")
+            central = Pyro5.api.Proxy(central_uri)
             central._pyroTimeout = 2.0
             central.notificar_nuevo_primario(self.id)
         except Exception as e:
@@ -402,7 +408,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("id", type=int)
     parser.add_argument("--nombre", required=True)
-    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--central", required=True, help="IP:Port del Name Server en la Central")
     parser.add_argument("--lat", type=float, default=0.0)
@@ -410,6 +416,10 @@ def main():
     parser.add_argument("--rumbo", type=float, default=0.0)
     parser.add_argument("--vel", type=float, default=0.0)
     args = parser.parse_args()
+
+    ns_host, ns_port = args.central.split(":")
+    Pyro5.config.NS_HOST = ns_host
+    Pyro5.config.NS_PORT = int(ns_port)
 
     daemon = Pyro5.api.Daemon(host=args.host, port=args.port)
     barco = BarcoServicio(args.id, args.nombre, args.host, args.port, args.lat, args.lon, args.rumbo, args.vel, args.central)

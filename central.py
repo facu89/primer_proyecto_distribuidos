@@ -189,7 +189,7 @@ def cmd_loop(ns_host, ns_port):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--ns-port", type=int, default=9090)
     parser.add_argument("--http-port", type=int, default=5000)
