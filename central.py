@@ -275,18 +275,58 @@ def iniciar_http(port):
     logging.info(f"Dashboard HTTP escuchando en http://localhost:{port}")
     server.serve_forever()
 
+ultimas_ubicaciones = {}
+ultima_actualizacion_ubicaciones = None
+#Nuevo Impresion de las tablas
+def _imprimir_tabla_ubicaciones(estado):
+    if not estado:
+        print("No hay datos de ubicaciones todavía.")
+        return
+    print(f"\n{'ID':<5}{'ACTIVO':<8}{'LAT':<10}{'LON':<10}{'RUMBO':<8}{'VEL':<6}")
+    for b_id, b in sorted(estado.items()):
+        activo = "SI" if b.get("activo") else "NO"
+        marca = " (PRIMARIO)" if b.get("es_primario") else ""
+        print(f"{b_id:<5}{activo:<8}{b.get('latitud', 0):<10.4f}{b.get('longitud', 0):<10.4f}{b.get('rumbo', 0):<8.1f}{b.get('velocidad', 0):<6.1f}{marca}")
+#Nuevo Central le pide primario ubicaciones
+def solicitar_ubicaciones(ns_host, ns_port):
+    """Le pide al primario el estado actualizado de la flota, lo guarda y lo muestra en tabla."""
+    global ultimas_ubicaciones, ultima_actualizacion_ubicaciones
+    try:
+        ns = Pyro5.api.locate_ns(host=ns_host, port=ns_port)
+        primario_uri = ns.lookup("flota.primario")
+        primario = Pyro5.api.Proxy(primario_uri)
+        primario._pyroTimeout = 3.0
+        estado = primario.obtener_estado_flota()
+    except Exception as e:
+        print(f"No se pudo contactar al primario: {e}")
+        return
+
+    ultimas_ubicaciones = estado
+    ultima_actualizacion_ubicaciones = time.time()
+    _imprimir_tabla_ubicaciones(estado)
+#Nuevo muestra las ubicaciones guardadas
+def ver_ubicaciones():
+    """Muestra la última foto de ubicaciones guardada, sin contactar al primario."""
+    if ultima_actualizacion_ubicaciones:
+        print(f"(Última actualización hace {time.time() - ultima_actualizacion_ubicaciones:.0f}s)")
+    _imprimir_tabla_ubicaciones(ultimas_ubicaciones)
+
 def cmd_loop(ns_host, ns_port):
     time.sleep(2)
     while True:
         try:
-            print("\nComandos: formar flota, estado, log, q")
+            print("\nComandos: formar flota, estado, solicitar ubicaciones, ver ubicaciones, log, q")
             cmd = input("> ").strip().lower()
             if not cmd: continue
-            
+
             if cmd == "formar flota":
                 formar_flota(ns_host, ns_port)
             elif cmd == "estado":
                 print(json.dumps(estado_flota, indent=2))
+            elif cmd == "solicitar ubicaciones": #Nuevo se agregaron las opciones nuevas
+                solicitar_ubicaciones(ns_host, ns_port)
+            elif cmd == "ver ubicaciones":
+                ver_ubicaciones()
             elif cmd == "log":
                 for l, t, desc in eventos_lamport:
                     print(f"L:{l} | {desc}")

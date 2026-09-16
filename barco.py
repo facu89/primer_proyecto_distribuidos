@@ -514,16 +514,25 @@ def hilo_vigilante(barco):
 
 def cmd_loop(barco):
     time.sleep(2)
-    print("\nComandos disponibles: ataque_aereo, solicitar_suministros, reportar_avistamiento, evacuacion_medica, solicitar_refuerzos")
+    print("\nComandos disponibles: ataque_aereo, solicitar_suministros, reportar_avistamiento, evacuacion_medica, solicitar_refuerzos, ubicaciones")
     while True:
         try:
             cmd = input("> ").strip().lower()
             if not cmd: continue
-            
+
             if cmd in ["ataque_aereo", "solicitar_suministros", "reportar_avistamiento", "evacuacion_medica", "solicitar_refuerzos"]:
                 # Generamos datos dummy para el ejemplo
                 datos = {"coordenadas": (barco.latitud, barco.longitud), "info": "Urgent"}
                 barco.solicitar_accion_local(cmd, datos)
+            elif cmd in ["ubicaciones", "flota"]: #Ubicaciones desde los barcos
+                if not barco.estado_flota:
+                    print("Aún no hay datos de la flota.")
+                else:
+                    print(f"\n{'ID':<5}{'ACTIVO':<8}{'LAT':<10}{'LON':<10}{'RUMBO':<8}{'VEL':<6}")
+                    for b_id, b in sorted(barco.estado_flota.items()):
+                        estado = "SI" if b.get("activo") else "NO"
+                        marca = " (YO)" if b_id == barco.id else (" (PRIMARIO)" if b.get("es_primario") else "")
+                        print(f"{b_id:<5}{estado:<8}{b.get('latitud', 0):<10.4f}{b.get('longitud', 0):<10.4f}{b.get('rumbo', 0):<8.1f}{b.get('velocidad', 0):<6.1f}{marca}")
             else:
                 print("Comando no reconocido.")
         except (EOFError, KeyboardInterrupt):
