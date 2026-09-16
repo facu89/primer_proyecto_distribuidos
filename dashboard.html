@@ -272,9 +272,56 @@
             pointer-events: none;
         }
 
+        /* Etiquetas de lugares propias (superpuestas sobre el mapa base) */
+        .place-label {
+            background: transparent;
+            border: none;
+            color: var(--crt-green);
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 12px;
+            font-weight: bold;
+            letter-spacing: 1px;
+            text-shadow: 0 0 4px rgba(0,0,0,0.9), 0 0 6px var(--crt-green-glow);
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
         /* Reticle crosshair cursor */
         .leaflet-container {
             cursor: crosshair !important;
+        }
+
+        /* Cartel de alerta: la Central de este dashboard dejó de responder */
+        #central-caida-overlay {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 2000;
+            text-align: center;
+            border: 2px solid var(--crt-red);
+            color: var(--crt-red);
+            padding: 22px 36px;
+            min-width: 320px;
+        }
+
+        #central-caida-overlay .titulo {
+            font-size: 18px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            text-shadow: 0 0 8px var(--crt-red);
+            animation: parpadeo 1s infinite;
+        }
+
+        #central-caida-overlay .detalle {
+            margin-top: 10px;
+            font-size: 13px;
+            color: var(--crt-green);
+        }
+
+        @keyframes parpadeo {
+            50% { opacity: 0.35; }
         }
     </style>
 </head>
@@ -318,6 +365,12 @@
 
     <!-- Map Div -->
     <div id="map"></div>
+
+    <!-- Cartel de Central Caída / Redirección automática -->
+    <div id="central-caida-overlay" class="hud-panel">
+        <div class="titulo">⚠ CENTRAL CAÍDA</div>
+        <div class="detalle" id="central-caida-msg">Buscando nueva Central activa...</div>
+    </div>
 </div>
 
 <!-- Leaflet JS -->
@@ -415,6 +468,22 @@
         }
     }
     drawGraticule();
+
+    // --- Etiquetas propias de lugares (superpuestas sobre el mapa base) ---
+    const placeLabels = L.layerGroup().addTo(map);
+
+    function drawPlaceLabels() {
+        L.marker([-51.75, -59.5], {
+            icon: L.divIcon({
+                className: 'place-label',
+                html: `<span>ISLAS MALVINAS</span>`,
+                iconSize: [140, 16],
+                iconAnchor: [70, 8]
+            }),
+            interactive: false
+        }).addTo(placeLabels);
+    }
+    drawPlaceLabels();
 
     // Actualización de coordenadas del cursor en tiempo real
     map.on('mousemove', function(e) {
@@ -522,12 +591,73 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
         }
     };
 
+    // --- 5b. Detección de caída de la Central y redirección automática ---
+    // Si esta Central deja de responder, buscamos entre las Centrales conocidas
+    // (/api/centrales) cuál pasó a ser la Principal (/api/rol) y redirigimos ahí.
+    let centralesConocidas = [];
+    let fallosConsecutivos = 0;
+    const UMBRAL_FALLOS = 3; // fetchState corre cada 2s -> ~6s sin respuesta
+    let buscandoNuevaCentral = false;
+
+    async function cargarCentralesConocidas() {
+        try {
+            const res = await fetch('/api/centrales');
+            if (res.ok) centralesConocidas = await res.json();
+        } catch (e) {
+            // Si esto falla de entrada no hay mucho para hacer; se reintenta más tarde igual
+        }
+    }
+    cargarCentralesConocidas();
+
+    async function intentarEncontrarPrincipal() {
+        for (const c of centralesConocidas) {
+            if (c.host === undefined || c.http_port === undefined) continue;
+            const base = `http://${c.host}:${c.http_port}`;
+            try {
+                const res = await fetch(`${base}/api/rol`, { cache: 'no-store' });
+                if (!res.ok) continue;
+                const info = await res.json();
+                if (info.soy_principal) {
+                    document.getElementById('central-caida-msg').innerText =
+                        `Nueva Central Principal: ID ${info.id}. Redirigiendo...`;
+                    setTimeout(() => { window.location.href = base + '/'; }, 1000);
+                    return true;
+                }
+            } catch (e) {
+                // Esta central tampoco responde, sigo probando con la siguiente
+            }
+        }
+        return false;
+    }
+
+    function mostrarCentralCaida() {
+        if (buscandoNuevaCentral) return;
+        buscandoNuevaCentral = true;
+        document.getElementById('central-caida-msg').innerText = 'Buscando nueva Central activa...';
+        document.getElementById('central-caida-overlay').style.display = 'block';
+
+        intentarEncontrarPrincipal().then(encontrada => {
+            if (encontrada) return;
+            const reintento = setInterval(async () => {
+                if (await intentarEncontrarPrincipal()) clearInterval(reintento);
+            }, 2000);
+        });
+    }
+
     // --- 5. Consulta periódica a la Central ---
     async function fetchState() {
         try {
             const res = await fetch('/api/estado');
-            if (!res.ok) return;
+            if (!res.ok) throw new Error('Respuesta no OK de /api/estado');
             const data = await res.json();
+
+            // Se recibió respuesta: esta Central sigue viva
+            fallosConsecutivos = 0;
+            if (buscandoNuevaCentral) {
+                buscandoNuevaCentral = false;
+                document.getElementById('central-caida-overlay').style.display = 'none';
+            }
+
             currentShipsData = data;
 
             let activeCount = 0;
@@ -582,6 +712,10 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
 
         } catch (e) {
             console.error("Error al consultar /api/estado:", e);
+            fallosConsecutivos++;
+            if (fallosConsecutivos >= UMBRAL_FALLOS) {
+                mostrarCentralCaida();
+            }
         }
     }
 

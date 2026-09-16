@@ -23,6 +23,35 @@ def obtener_ip_local():
     except Exception:
         return "127.0.0.1"
 
+# --- Zona operativa marítima ---
+# Caja de coordenadas (lat/lon) en aguas abiertas del Atlántico Sur, lejos
+# de la costa de Sudamérica (~-35° de longitud) y de África (~-10° a +15°).
+# Se usa únicamente para que el movimiento aleatorio de los barcos no los
+# termine llevando a navegar sobre tierra firme.
+ZONA_LAT_MIN = -28.0
+ZONA_LAT_MAX = -8.0
+ZONA_LON_MIN = -28.0
+ZONA_LON_MAX = -12.0
+
+def limitar_a_zona_oceanica(lat, lon, rumbo):
+    """
+    Discrimina si (lat, lon) cae fuera de la zona operativa marítima.
+    Si se sale, recorta la posición al borde de la caja y "refleja" el
+    rumbo (como un rebote) para que el próximo paso aleje al barco de
+    tierra firme. Si está dentro de la zona, devuelve todo sin cambios.
+    """
+    nuevo_rumbo = rumbo
+
+    if lon < ZONA_LON_MIN or lon > ZONA_LON_MAX:
+        lon = max(ZONA_LON_MIN, min(ZONA_LON_MAX, lon))
+        nuevo_rumbo = (360 - nuevo_rumbo) % 360  # rebote este-oeste
+
+    if lat < ZONA_LAT_MIN or lat > ZONA_LAT_MAX:
+        lat = max(ZONA_LAT_MIN, min(ZONA_LAT_MAX, lat))
+        nuevo_rumbo = (180 - nuevo_rumbo) % 360  # rebote norte-sur
+
+    return lat, lon, nuevo_rumbo
+
 # Reloj de Lamport y eventos
 reloj_logico = 0
 eventos = []
