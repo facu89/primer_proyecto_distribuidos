@@ -272,7 +272,7 @@
             pointer-events: none;
         }
 
-        /* Etiquetas de lugares propias (superpuestas sobre el mapa base) */
+        /* Etiquetas de lugares propias */
         .place-label {
             background: transparent;
             border: none;
@@ -286,12 +286,11 @@
             white-space: nowrap;
         }
 
-        /* Reticle crosshair cursor */
         .leaflet-container {
             cursor: crosshair !important;
         }
 
-        /* Cartel de alerta: la Central de este dashboard dejó de responder */
+        /* Cartel de alerta */
         #central-caida-overlay {
             display: none;
             position: absolute;
@@ -324,7 +323,7 @@
             50% { opacity: 0.35; }
         }
 
-        /* --- Panel Táctico de Solicitudes (Fase 2) --- */
+        /* --- Panel Táctico de Solicitudes --- */
         .hud-requests {
             top: 165px;
             right: 18px;
@@ -369,7 +368,6 @@
             display: inline-block;
         }
 
-        /* Flecha rota al colapsar panel */
         .hud-requests.collapsed .requests-arrow {
             transform: rotate(-90deg);
         }
@@ -529,12 +527,24 @@
             letter-spacing: 0.5px;
         }
 
-        /* --- Efecto de transmisión de datos (línea punteada que viaja) --- */
-        @keyframes flujo-datos {
-            to { stroke-dashoffset: -20; }
+        /* --- Efecto de transmisión: Puntito viajero --- */
+        .traveling-dot {
+            width: 12px;
+            height: 12px;
+            background-color: var(--crt-gold);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--crt-gold), 0 0 20px var(--crt-gold);
+            pointer-events: none;
         }
-        .linea-transmision {
-            animation: flujo-datos 1s linear infinite;
+
+        .traveling-dot.red {
+            background-color: var(--crt-red);
+            box-shadow: 0 0 10px var(--crt-red), 0 0 20px var(--crt-red);
+        }
+
+        .traveling-dot.green {
+            background-color: var(--crt-green);
+            box-shadow: 0 0 10px var(--crt-green), 0 0 20px var(--crt-green);
         }
 
         /* --- Efecto de Explosión --- */
@@ -582,7 +592,7 @@
         <div>CONSISTENCIA: <span style="color: var(--crt-green);">RELOJES DE LAMPORT</span></div>
     </div>
 
-    <!-- Tactical Requests HUD Panel (Fase 2) -->
+    <!-- Tactical Requests HUD Panel -->
     <div class="hud-panel hud-requests" id="hud-requests">
         <div class="requests-header" onclick="toggleRequestsPanel()">
             <span class="requests-title-text">
@@ -638,7 +648,6 @@
     updateClock();
 
     // --- 2. Inicialización del Mapa Táctico (Leaflet) ---
-    // Centrado inicial en el Atlántico Sur / Sudamérica donde operan los barcos
     const map = L.map('map', {
         center: [-25.0, -40.0],
         zoom: 4,
@@ -648,126 +657,103 @@
         attributionControl: false
     });
 
-    // Capa base mundial oscura sin marca de agua (Esri World Dark Gray Base)
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
         maxZoom: 16
     }).addTo(map);
 
-    // Capa de referencias (fronteras, costas y nombres sin marcas de agua)
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
         maxZoom: 16
     }).addTo(map);
 
-    // Zoom control en la esquina derecha inferior
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-    // --- 3. Capa de Graticule (Líneas de Coordenadas Latitud / Longitud en el mundo) ---
+    // --- 3. Capa de Graticule (Líneas de Coordenadas) ---
     const graticuleLayer = L.layerGroup().addTo(map);
 
     function drawGraticule() {
         graticuleLayer.clearLayers();
 
-        // Meridianos (Longitud) cada 15 grados
         for (let lon = -180; lon <= 180; lon += 15) {
             const pts = [];
             for (let lat = -80; lat <= 80; lat += 5) pts.push([lat, lon]);
-            
-            L.polyline(pts, {
-                className: 'graticule-line',
-                color: 'rgba(51, 255, 51, 0.22)',
-                weight: 1,
-                interactive: false
-            }).addTo(graticuleLayer);
+            L.polyline(pts, { className: 'graticule-line', color: 'rgba(51, 255, 51, 0.22)', weight: 1, interactive: false }).addTo(graticuleLayer);
 
-            // Etiqueta de longitud en el ecuador y polos
             const lonLabel = lon === 0 ? '0° (GM)' : (lon > 0 ? `${lon}°E` : `${Math.abs(lon)}°W`);
             L.marker([0, lon], {
-                icon: L.divIcon({
-                    className: 'graticule-label',
-                    html: `<span>${lonLabel}</span>`,
-                    iconSize: [50, 15],
-                    iconAnchor: [25, -2]
-                }),
+                icon: L.divIcon({ className: 'graticule-label', html: `<span>${lonLabel}</span>`, iconSize: [50, 15], iconAnchor: [25, -2] }),
                 interactive: false
             }).addTo(graticuleLayer);
         }
 
-        // Paralelos (Latitud) cada 15 grados
         for (let lat = -75; lat <= 75; lat += 15) {
             const pts = [];
             for (let lon = -180; lon <= 180; lon += 10) pts.push([lat, lon]);
-            
-            L.polyline(pts, {
-                className: 'graticule-line',
-                color: 'rgba(51, 255, 51, 0.22)',
-                weight: 1,
-                interactive: false
-            }).addTo(graticuleLayer);
+            L.polyline(pts, { className: 'graticule-line', color: 'rgba(51, 255, 51, 0.22)', weight: 1, interactive: false }).addTo(graticuleLayer);
 
-            // Etiqueta de latitud en el meridiano 0
             const latLabel = lat === 0 ? 'ECUADOR (0°)' : (lat > 0 ? `${lat}°N` : `${Math.abs(lat)}°S`);
             L.marker([lat, 0], {
-                icon: L.divIcon({
-                    className: 'graticule-label',
-                    html: `<span>${latLabel}</span>`,
-                    iconSize: [90, 15],
-                    iconAnchor: [-5, 7]
-                }),
+                icon: L.divIcon({ className: 'graticule-label', html: `<span>${latLabel}</span>`, iconSize: [90, 15], iconAnchor: [-5, 7] }),
                 interactive: false
             }).addTo(graticuleLayer);
         }
     }
     drawGraticule();
 
-    // --- Etiquetas propias de lugares (superpuestas sobre el mapa base) ---
     const placeLabels = L.layerGroup().addTo(map);
-
-    function drawPlaceLabels() {
-        L.marker([-51.75, -59.5], {
-            icon: L.divIcon({
-                className: 'place-label',
-                html: `<span>ISLAS MALVINAS</span>`,
-                iconSize: [140, 16],
-                iconAnchor: [70, 8]
-            }),
-            interactive: false
-        }).addTo(placeLabels);
-    }
-    drawPlaceLabels();
-
-    // --- NUEVO: Base Central y Tracking de Animaciones ---
-    // Ubicamos la Central ficticiamente en la costa para las animaciones
-    const BASE_CENTRAL_COORD = [-38.88, -62.10]; 
-    L.marker(BASE_CENTRAL_COORD, {
-        icon: L.divIcon({
-            className: 'place-label',
-            html: `<span style="color: var(--crt-cyan);">⌂ CENTRAL OPERATIVA</span>`,
-            iconSize: [200, 20],
-            iconAnchor: [100, 10]
-        }),
+    L.marker([-51.75, -59.5], {
+        icon: L.divIcon({ className: 'place-label', html: `<span>ISLAS MALVINAS</span>`, iconSize: [140, 16], iconAnchor: [70, 8] }),
         interactive: false
     }).addTo(placeLabels);
 
-    const lineasConexionActivas = {}; // Para guardar las líneas de red
-    const explosionesRealizadas = new Set(); // Para no repetir explosiones
-    const estadosPreviosSolicitudes = {}; // NUEVO: Para saber qué cambió
-    let esPrimeraCargaSolicitudes = true; // NUEVO: Para no repetir animaciones viejas
+    // --- NUEVO: Base Central y Animación del Puntito ---
+    const BASE_CENTRAL_COORD = [-38.88, -62.10]; 
+    L.marker(BASE_CENTRAL_COORD, {
+        icon: L.divIcon({ className: 'place-label', html: `<span style="color: var(--crt-cyan);">⌂ CENTRAL OPERATIVA</span>`, iconSize: [200, 20], iconAnchor: [100, 10] }),
+        interactive: false
+    }).addTo(placeLabels);
+
+    const lineasConexionActivas = {}; 
+    const puntitosActivos = {};       
+    const resolucionesProcesadas = new Set(); 
 
     function dispararExplosion(lat, lon) {
         const explosion = L.marker([lat, lon], {
-            icon: L.divIcon({
-                className: 'custom-explosion',
-                html: '<div class="explosion-grafica"></div>',
-                iconSize: [40, 40],
-                iconAnchor: [20, 20]
-            }),
+            icon: L.divIcon({ className: 'custom-explosion', html: '<div class="explosion-grafica"></div>', iconSize: [40, 40], iconAnchor: [20, 20] }),
             interactive: false
         }).addTo(map);
-        // Borrar del mapa luego de que termine la animación
         setTimeout(() => map.removeLayer(explosion), 1200);
     }
 
-    // Actualización de coordenadas del cursor en tiempo real
+    // Motor de animación continua para el viaje del puntito (Ida y Vuelta)
+    function animarPuntosViajeros() {
+        for (let id in puntitosActivos) {
+            let p = puntitosActivos[id];
+            if (!p.active) continue;
+            
+            p.progress += 0.008 * p.direction; // Velocidad del viaje ajustada
+            
+            if (p.progress >= 1 && p.direction === 1) {
+                // Llegó al barco: pegar la vuelta
+                p.progress = 1;
+                p.direction = -1;
+            } else if (p.progress <= 0 && p.direction === -1) {
+                // Volvió a la central: terminar animación
+                p.active = false;
+                map.removeLayer(p.marker);
+                delete puntitosActivos[id];
+                continue;
+            }
+            
+            // Interpolación matemática entre la Central y el Barco
+            let lat = BASE_CENTRAL_COORD[0] + (p.posBarco[0] - BASE_CENTRAL_COORD[0]) * p.progress;
+            let lng = BASE_CENTRAL_COORD[1] + (p.posBarco[1] - BASE_CENTRAL_COORD[1]) * p.progress;
+            
+            p.marker.setLatLng([lat, lng]);
+        }
+        requestAnimationFrame(animarPuntosViajeros);
+    }
+    requestAnimationFrame(animarPuntosViajeros);
+
     map.on('mousemove', function(e) {
         const lat = e.latlng.lat;
         const lon = e.latlng.lng;
@@ -796,12 +782,9 @@
         const color = isPrimary ? '#ffffff' : (isOffline ? '#ff3333' : '#33ff33');
         const ringClass = isPrimary ? 'primary' : (isOffline ? 'offline' : '');
 
-        // SVG con flecha náutica táctica de rumbo
         const svgArrow = `
             <svg class="ship-icon" style="transform: translate(-50%, -50%) rotate(${heading}deg);" width="26" height="26" viewBox="0 0 26 26">
-                <!-- Flecha de rumbo náutico -->
                 <polygon points="13,1 19,23 13,18 7,23" fill="${color}" stroke="#000" stroke-width="1.5" />
-                <!-- Núcleo de posición -->
                 <circle cx="13" cy="13" r="2.5" fill="#fff" />
             </svg>
         `;
@@ -844,50 +827,32 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
         const lon = primaryShip.longitud ?? primaryShip.lon;
         if (lat === undefined || lon === undefined) return;
 
-        // Anillos tácticos concéntricos de 50NM y 100NM (1 NM = 1852 m)
         [50, 100].forEach(nm => {
             L.circle([lat, lon], {
-                radius: nm * 1852,
-                color: 'rgba(51, 255, 51, 0.25)',
-                weight: 1,
-                dashArray: '5, 8',
-                fill: false,
-                interactive: false
+                radius: nm * 1852, color: 'rgba(51, 255, 51, 0.25)', weight: 1, dashArray: '5, 8', fill: false, interactive: false
             }).addTo(rangeRings);
         });
     }
 
-    // Centrar en la flota
     window.centrarFlota = function() {
         const bounds = [];
         for (const id in currentShipsData) {
             const s = currentShipsData[id];
             const lat = s.latitud ?? s.lat;
             const lon = s.longitud ?? s.lon;
-            if (lat !== undefined && lon !== undefined) {
-                bounds.push([lat, lon]);
-            }
+            if (lat !== undefined && lon !== undefined) bounds.push([lat, lon]);
         }
-        if (bounds.length > 0) {
-            map.fitBounds(bounds, { padding: [100, 100], maxZoom: 8 });
-        }
+        if (bounds.length > 0) map.fitBounds(bounds, { padding: [100, 100], maxZoom: 8 });
     };
 
-    // --- 5b. Detección de caída de la Central y redirección automática ---
-    // Si esta Central deja de responder, buscamos entre las Centrales conocidas
-    // (/api/centrales) cuál pasó a ser la Principal (/api/rol) y redirigimos ahí.
+    // --- 5. Consulta periódica a la Central ---
     let centralesConocidas = [];
     let fallosConsecutivos = 0;
-    const UMBRAL_FALLOS = 3; // fetchState corre cada 2s -> ~6s sin respuesta
+    const UMBRAL_FALLOS = 3;
     let buscandoNuevaCentral = false;
 
     async function cargarCentralesConocidas() {
-        try {
-            const res = await fetch('/api/centrales');
-            if (res.ok) centralesConocidas = await res.json();
-        } catch (e) {
-            // Si esto falla de entrada no hay mucho para hacer; se reintenta más tarde igual
-        }
+        try { const res = await fetch('/api/centrales'); if (res.ok) centralesConocidas = await res.json(); } catch (e) {}
     }
     cargarCentralesConocidas();
 
@@ -900,14 +865,11 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
                 if (!res.ok) continue;
                 const info = await res.json();
                 if (info.soy_principal) {
-                    document.getElementById('central-caida-msg').innerText =
-                        `Nueva Central Principal: ID ${info.id}. Redirigiendo...`;
+                    document.getElementById('central-caida-msg').innerText = `Nueva Central Principal: ID ${info.id}. Redirigiendo...`;
                     setTimeout(() => { window.location.href = base + '/'; }, 1000);
                     return true;
                 }
-            } catch (e) {
-                // Esta central tampoco responde, sigo probando con la siguiente
-            }
+            } catch (e) {}
         }
         return false;
     }
@@ -926,14 +888,12 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
         });
     }
 
-    // --- 5. Consulta periódica a la Central ---
     async function fetchState() {
         try {
             const res = await fetch('/api/estado');
             if (!res.ok) throw new Error('Respuesta no OK de /api/estado');
             const data = await res.json();
 
-            // Se recibió respuesta: esta Central sigue viva
             fallosConsecutivos = 0;
             if (buscandoNuevaCentral) {
                 buscandoNuevaCentral = false;
@@ -941,7 +901,6 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
             }
 
             currentShipsData = data;
-
             let activeCount = 0;
             let primaryShip = null;
             const validCoords = [];
@@ -953,30 +912,21 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
                 const lon = ship.longitud ?? ship.lon;
 
                 if (lat === undefined || lon === undefined) continue;
-
                 if (ship.activo !== false) activeCount++;
                 if (ship.es_primario && ship.activo !== false) primaryShip = ship;
 
                 validCoords.push([lat, lon]);
 
-                // Actualizar o crear marcador en Leaflet
                 if (markers[id]) {
                     markers[id].setLatLng([lat, lon]);
                     markers[id].setIcon(createShipIcon(ship));
                 } else {
-                    const marker = L.marker([lat, lon], {
-                        icon: createShipIcon(ship)
-                    }).addTo(map);
-
-                    marker.on('click', () => {
-                        map.panTo([lat, lon], { animate: true });
-                    });
-
+                    const marker = L.marker([lat, lon], { icon: createShipIcon(ship) }).addTo(map);
+                    marker.on('click', () => { map.panTo([lat, lon], { animate: true }); });
                     markers[id] = marker;
                 }
             }
 
-            // Actualizar contadores del HUD
             document.getElementById('active-count').innerText = `${activeCount} NAVIOS`;
             if (primaryShip) {
                 document.getElementById('primary-id').innerText = `[${primaryShip.id}] ${primaryShip.nombre}`;
@@ -986,18 +936,13 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
                 rangeRings.clearLayers();
             }
 
-            // Auto fit inicial si no se hizo aún
             if (!initialFitDone && validCoords.length > 0) {
                 initialFitDone = true;
                 centrarFlota();
             }
-
         } catch (e) {
-            console.error("Error al consultar /api/estado:", e);
             fallosConsecutivos++;
-            if (fallosConsecutivos >= UMBRAL_FALLOS) {
-                mostrarCentralCaida();
-            }
+            if (fallosConsecutivos >= UMBRAL_FALLOS) mostrarCentralCaida();
         }
     }
 
@@ -1014,7 +959,6 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
 
             const listElem = document.getElementById('events-list');
             listElem.innerHTML = '';
-
             document.getElementById('events-count').innerText = `${eventos.length} EVENTOS REGISTRADOS`;
 
             eventos.slice(-20).forEach(([l_clock, timestamp, desc]) => {
@@ -1029,12 +973,10 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
                 `;
                 listElem.appendChild(item);
             });
-        } catch (e) {
-            console.error("Error al consultar /api/eventos:", e);
-        }
+        } catch (e) {}
     }
 
-    // --- 7. Gestión de Solicitudes Tácticas (Fase 2) ---
+    // --- 7. Gestión de Solicitudes Tácticas ---
     function toggleRequestsPanel() {
         const panel = document.getElementById('hud-requests');
         if (panel) panel.classList.toggle('collapsed');
@@ -1059,7 +1001,6 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
             const solicitudes = data.solicitudes || [];
             const activas = solicitudes.filter(s => s.estado === 'pendiente' || (s.estado && s.estado.startsWith('no_entregada_')));
 
-            // Actualizar contadores del HUD
             const badge = document.getElementById('requests-badge');
             if (badge) {
                 badge.innerText = `${activas.length} PENDIENTES`;
@@ -1075,15 +1016,10 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
             if (!listElem) return;
 
             if (solicitudes.length === 0) {
-                listElem.innerHTML = `
-                    <div style="font-size: 11px; color: rgba(51, 255, 51, 0.5); text-align: center; padding: 12px 0;">
-                        [ SIN PETICIONES PENDIENTES ]
-                    </div>
-                `;
+                listElem.innerHTML = `<div style="font-size: 11px; color: rgba(51, 255, 51, 0.5); text-align: center; padding: 12px 0;">[ SIN PETICIONES PENDIENTES ]</div>`;
                 return;
             }
 
-            // Ordenar: activas primero (más recientes arriba), luego resueltas
             const sorted = [...solicitudes].sort((a, b) => {
                 const aActiva = a.estado === 'pendiente' || (a.estado && a.estado.startsWith('no_entregada_'));
                 const bActiva = b.estado === 'pendiente' || (b.estado && b.estado.startsWith('no_entregada_'));
@@ -1097,49 +1033,59 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
                 const isPending = sol.estado === 'pendiente';
                 const isFailed = sol.estado && sol.estado.startsWith('no_entregada_');
                 
-                // --- NUEVO: Lógica Visual (Líneas y Explosiones) ---
+                // --- LÓGICA DE ANIMACIÓN ---
                 const barcoData = currentShipsData[sol.origen];
                 if (barcoData && barcoData.latitud !== undefined) {
                     const posBarco = [barcoData.latitud, barcoData.longitud];
                     
-                    // Manejo del rayo de conexión
-                    if (sol.estado === 'pendiente') {
+                    if (isPending) {
+                        // Línea tenue mientras está pendiente
                         if (!lineasConexionActivas[sol.id]) {
-                            // Dibuja línea amarilla punteada moviéndose
-                            lineasConexionActivas[sol.id] = L.polyline([posBarco, BASE_CENTRAL_COORD], {
-                                color: 'var(--crt-gold)', dashArray: '5, 10', weight: 2, className: 'linea-transmision'
+                            lineasConexionActivas[sol.id] = L.polyline([BASE_CENTRAL_COORD, posBarco], { 
+                                color: 'rgba(255, 221, 51, 0.4)', dashArray: '4, 8', weight: 1 
                             }).addTo(map);
                         } else {
-                            // Actualiza posición si el barco se mueve
-                            lineasConexionActivas[sol.id].setLatLngs([posBarco, BASE_CENTRAL_COORD]);
+                            lineasConexionActivas[sol.id].setLatLngs([BASE_CENTRAL_COORD, posBarco]);
                         }
-                    } else if (sol.estado && sol.estado.startsWith('no_entregada_')) {
-                        // Si falla, se pone roja y desaparece a los 3 segundos
-                        if (lineasConexionActivas[sol.id]) {
-                            lineasConexionActivas[sol.id].setStyle({ color: 'var(--crt-red)' });
-                            setTimeout(() => { 
-                                if(lineasConexionActivas[sol.id]) { map.removeLayer(lineasConexionActivas[sol.id]); delete lineasConexionActivas[sol.id]; }
-                            }, 3000);
-                        }
-                    } else {
-                        // Si se resuelve bien, parpadea verde y desaparece rápido
-                        if (lineasConexionActivas[sol.id]) {
-                            lineasConexionActivas[sol.id].setStyle({ color: 'var(--crt-green)' });
-                            setTimeout(() => { 
-                                if(lineasConexionActivas[sol.id]) { map.removeLayer(lineasConexionActivas[sol.id]); delete lineasConexionActivas[sol.id]; }
-                            }, 1000);
-                        }
-                    }
-                }
+                    } else if (!resolucionesProcesadas.has(sol.id)) {
+                        // Resolución detectada
+                        resolucionesProcesadas.add(sol.id);
+                        
+                        if (sol.estado === 'aceptada') {
+                            // Se elimina la línea verde/tenue de fondo completamente para limpiar la pantalla
+                            if (lineasConexionActivas[sol.id]) {
+                                map.removeLayer(lineasConexionActivas[sol.id]);
+                                delete lineasConexionActivas[sol.id];
+                            }
 
-                // Manejo de la explosión
-                if (sol.estado === 'aceptada' && sol.accion === 'ataque_aereo' && !explosionesRealizadas.has(sol.id)) {
-                    explosionesRealizadas.add(sol.id);
-                    if (sol.datos && sol.datos.coordenadas) {
-                        dispararExplosion(sol.datos.coordenadas[0], sol.datos.coordenadas[1]);
+                            // Disparar el puntito verde (Ida y Vuelta)
+                            const dotIcon = L.divIcon({ className: 'custom-dot', html: `<div class="traveling-dot green" id="dot-${sol.id}"></div>`, iconSize: [12, 12], iconAnchor: [6, 6] });
+                            puntitosActivos[sol.id] = {
+                                marker: L.marker(BASE_CENTRAL_COORD, { icon: dotIcon, interactive: false }).addTo(map),
+                                progress: 0,
+                                direction: 1, // 1 = ida, -1 = vuelta
+                                active: true,
+                                posBarco: posBarco,
+                                id: sol.id
+                            };
+
+                            // Explosión si corresponde
+                            if (sol.accion === 'ataque_aereo' && sol.datos && sol.datos.coordenadas) {
+                                dispararExplosion(sol.datos.coordenadas[0], sol.datos.coordenadas[1]);
+                            }
+
+                        } else if (isFailed || sol.estado === 'rechazada') {
+                            // Si se rechaza/falla, la línea se pinta de rojo intenso y luego se borra
+                            if (lineasConexionActivas[sol.id]) {
+                                lineasConexionActivas[sol.id].setStyle({ color: 'var(--crt-red)', weight: 2, dashArray: null });
+                                setTimeout(() => { 
+                                    if (lineasConexionActivas[sol.id]) { map.removeLayer(lineasConexionActivas[sol.id]); delete lineasConexionActivas[sol.id]; }
+                                }, 2000);
+                            }
+                        }
                     }
                 }
-                // --- FIN NUEVO ---
+                // --- FIN ANIMACIÓN ---
 
                 let cardClass = 'request-card ';
                 let badgeClass = 'card-status-badge ';
@@ -1167,12 +1113,8 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
                     const disabledAttr = !soyPrincipalActual ? 'disabled' : '';
                     actionsHtml = `
                         <div class="card-actions">
-                            <button class="tactical-btn btn-accept" ${disabledAttr} onclick="resolverSolicitudWeb(${sol.id}, 'aceptada', this)">
-                                ✔ ACEPTAR
-                            </button>
-                            <button class="tactical-btn btn-reject" ${disabledAttr} onclick="resolverSolicitudWeb(${sol.id}, 'rechazada', this)">
-                                ✖ RECHAZAR
-                            </button>
+                            <button class="tactical-btn btn-accept" ${disabledAttr} onclick="resolverSolicitudWeb(${sol.id}, 'aceptada', this)">✔ ACEPTAR</button>
+                            <button class="tactical-btn btn-reject" ${disabledAttr} onclick="resolverSolicitudWeb(${sol.id}, 'rechazada', this)">✖ RECHAZAR</button>
                         </div>
                     `;
                 }
@@ -1192,10 +1134,7 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
                 `;
                 listElem.appendChild(card);
             });
-
-        } catch (e) {
-            console.error("Error al consultar /api/solicitudes:", e);
-        }
+        } catch (e) {}
     }
 
     async function resolverSolicitudWeb(id, decision, btnElem) {
@@ -1212,21 +1151,17 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
             });
 
             const data = await res.json();
-            if (!res.ok) {
-                alert(data.error || 'Error al resolver la solicitud.');
-            }
-            // Forzar actualización inmediata
+            if (!res.ok) alert(data.error || 'Error al resolver la solicitud.');
+            
             lastSolicitudesJson = "";
             await fetchSolicitudes();
             await fetchEventos();
         } catch (e) {
-            console.error("Error al enviar resolución:", e);
             alert("Error de conexión al enviar resolución.");
             buttons.forEach(b => { b.disabled = false; });
         }
     }
 
-    // Polling continuo
     setInterval(fetchState, 2000);
     setInterval(fetchEventos, 2000);
     setInterval(fetchSolicitudes, 1500);
