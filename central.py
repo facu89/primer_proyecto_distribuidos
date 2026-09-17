@@ -149,24 +149,24 @@ class CentralServicio:
 
     def notificar_nuevo_primario(self, primario_id):
         global estado_flota
-        viejo_primario = None
+        # Ojo: un cambio de primario no siempre significa que el anterior murió.
+        # También pasa en un relevo pacífico (ej: un barco de mayor ID que se
+        # reincorpora reclama el liderazgo, aunque el primario anterior siga vivo).
+        # Por eso acá solo actualizamos QUIÉN es el primario ahora, sin tocar el
+        # estado "activo" de nadie más -esa detección real la hace el polling
+        # (hilo_polling), que si un barco deja de responder de verdad, ahí sí lo
+        # marca inactivo.
         for b_id, b_data in barcos_registrados.items():
             if b_data.get("es_primario") and b_id != primario_id:
-                viejo_primario = b_id
                 b_data["es_primario"] = False
-                b_data["activo"] = False # El primario anterior cayó, lo que motivó la elección
 
         if primario_id in barcos_registrados:
             barcos_registrados[primario_id]["es_primario"] = True
             barcos_registrados[primario_id]["activo"] = True
 
         estado_flota = barcos_registrados.copy()
-        
+
         msg = f"Cambio de mando: Nuevo Coordinador electo -> Barco {primario_id}"
-        if viejo_primario:
-            msg += f" (Barco {viejo_primario} desconectado / inactivo)"
-            logging.warning(f"Primario anterior {viejo_primario} marcado como INACTIVO/HUNDIDO")
-        
         logging.info(f"Nuevo primario registrado en Central: Barco {primario_id}")
         eventos_lamport.append((0, time.time(), msg))
         return True

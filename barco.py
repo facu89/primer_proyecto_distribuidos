@@ -484,10 +484,26 @@ class BarcoServicio:
             self.es_primario = True
             self.primario_id = self.id
             
-            # Reconstruir estado_flota si estuviera incompleto
-            if not self.estado_flota:
-                self.estado_flota = {self.id: self.obtener_estado()}
-                
+            # Reconstruir estado_flota si estuviera incompleto (por ejemplo, si no era
+            # primario cuando me reincorporé y nunca llegué a tener la tabla completa).
+            # Uso la topología (que siempre conozco) para no perder de la tabla a barcos
+            # que en realidad siguen vivos, solo porque yo no tenía guardado su estado.
+            if self.id not in self.estado_flota:
+                self.estado_flota[self.id] = self.obtener_estado()
+            for p_id, _ in self.topologia:
+                if p_id not in self.estado_flota:
+                    self.estado_flota[p_id] = {
+                        "id": p_id,
+                        "latitud": 0.0,
+                        "longitud": 0.0,
+                        "rumbo": 0.0,
+                        "velocidad": 0.0,
+                        "activo": True,
+                        "es_primario": False,
+                        "lamport": reloj_logico,
+                    }
+                    self.ultimos_contactos[p_id] = time.time()  # todavía sin evidencia de que esté muerto
+
             ahora = time.time()
             # Marcar al primario caído y nodos que no respondieron como inactivos
             for p_id in list(self.estado_flota.keys()):
