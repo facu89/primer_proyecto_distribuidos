@@ -24,31 +24,20 @@ def obtener_ip_local():
         return "127.0.0.1"
 
 # --- Zona operativa marítima ---
-# Caja de coordenadas (lat/lon) en aguas abiertas del Atlántico Sur, lejos
-# de la costa de Sudamérica (~-35° de longitud) y de África (~-10° a +15°).
-# Se usa únicamente para que el movimiento aleatorio de los barcos no los
-# termine llevando a navegar sobre tierra firme.
 ZONA_LAT_MIN = -28.0
 ZONA_LAT_MAX = -8.0
 ZONA_LON_MIN = -28.0
 ZONA_LON_MAX = -12.0
 
 def limitar_a_zona_oceanica(lat, lon, rumbo):
-    """
-    Discrimina si (lat, lon) cae fuera de la zona operativa marítima.
-    Si se sale, recorta la posición al borde de la caja y "refleja" el
-    rumbo (como un rebote) para que el próximo paso aleje al barco de
-    tierra firme. Si está dentro de la zona, devuelve todo sin cambios.
-    """
     nuevo_rumbo = rumbo
-
     if lon < ZONA_LON_MIN or lon > ZONA_LON_MAX:
         lon = max(ZONA_LON_MIN, min(ZONA_LON_MAX, lon))
-        nuevo_rumbo = (360 - nuevo_rumbo) % 360  # rebote este-oeste
+        nuevo_rumbo = (360 - nuevo_rumbo) % 360  
 
     if lat < ZONA_LAT_MIN or lat > ZONA_LAT_MAX:
         lat = max(ZONA_LAT_MIN, min(ZONA_LAT_MAX, lat))
-        nuevo_rumbo = (180 - nuevo_rumbo) % 360  # rebote norte-sur
+        nuevo_rumbo = (180 - nuevo_rumbo) % 360  
 
     return lat, lon, nuevo_rumbo
 
@@ -77,43 +66,36 @@ class BarcoServicio:
         self.es_primario = False
         
         self.central_uri = central_uri
-        self.topologia = []  # Lista de peers (ID, URI) ordenada
-        self.peers_uris = {} # ID -> URI directo
+        self.topologia = []  
+        self.peers_uris = {} 
         self.primario_id = None
 
         self.ultimo_latido = time.time()
         self.en_eleccion = False
         self.ultimo_anuncio = None
         
-        # Estado de toda la flota (solo el primario lo mantiene completo)
         self.estado_flota = {}
-        self.ultimos_contactos = {} # id -> timestamp del último mensaje/posición recibido
-        self.solicitudes_en_vuelo = {} # {solicitud_id: barco_origen} tracking de pedidos a Central
+        self.ultimos_contactos = {} 
+        self.solicitudes_en_vuelo = {} 
 
-    # --- Métodos de ciclo de vida e inicialización ---
-    
     def registrar_en_central(self, mi_uri):
-        """Se conecta a la central para registrarse al inicio."""
         try:
             ns_host, ns_port = self.central_uri.split(":")
             ns = Pyro5.api.locate_ns(host=ns_host, port=int(ns_port))
             ns.register(f"flota.barco.{self.id}", mi_uri)
             
-            # Buscar a la central
             central_uri = ns.lookup("flota.central")
             central = Pyro5.api.Proxy(central_uri)
             central._pyroTimeout = 5.0
             resultado = central.registrar_barco(self.id, self.nombre, self.host, self.port, self.latitud, self.longitud, self.rumbo, self.velocidad)
             logging.info(f"Registrado exitosamente en la Central {self.central_uri}")
 
-            # Si la flota ya estaba en marcha, reincorporarse de inmediato al anillo
             if isinstance(resultado, dict) and resultado.get("flota_formada"):
                 topologia = resultado["topologia"]
                 primario_id = resultado["primario_id"]
                 self.configurar_flota(topologia, primario_id)
                 logging.info(f"Reincorporado exitosamente a la flota activa. Primario actual: Barco {primario_id}")
                 
-                # Si mi ID es mayor que el primario actual, iniciar elección para restablecer liderazgo legítimo
                 if self.id > primario_id:
                     logging.info(f"Mi ID ({self.id}) es mayor que el primario actual ({primario_id}). Iniciando elección...")
                     time.sleep(1)
@@ -123,7 +105,6 @@ class BarcoServicio:
             sys.exit(1)
 
     def configurar_flota(self, topologia, primario_id):
-        """Invocado por la Central al hacer 'formar flota' o al reincorporarse."""
         with lock:
             global reloj_logico
             reloj_logico += 1
@@ -134,7 +115,6 @@ class BarcoServicio:
             self.es_primario = (self.id == primario_id)
             self.ultimo_latido = time.time()
             
-            # Inicializar estado_flota si soy el primario
             if self.es_primario:
                 for p_id, p_uri in topologia:
                     self.estado_flota[p_id] = {
@@ -154,13 +134,11 @@ class BarcoServicio:
         return True
 
     def actualizar_topologia(self, nueva_topologia, reincorporado_id=None):
-        """Invocado por la Central cuando un nodo se reincorpora al anillo."""
         with lock:
             self.topologia = nueva_topologia
             for p_id, p_uri in nueva_topologia:
                 self.peers_uris[p_id] = p_uri
                 if p_id not in self.estado_flota:
-                    # Nunca lo había visto: lo doy de alta como activo (recién se une al anillo)
                     self.estado_flota[p_id] = {
                         "id": p_id,
                         "latitud": 0.0,
@@ -173,20 +151,13 @@ class BarcoServicio:
                     }
                     self.ultimos_contactos[p_id] = time.time()
                 elif p_id == reincorporado_id:
-                    # Es el barco que Central avisa que se reincorporó de verdad
                     self.estado_flota[p_id]["activo"] = True
                     self.ultimos_contactos[p_id] = time.time()
-                # A los demás barcos ya conocidos no les toco su estado de actividad acá:
-                # que lo decida únicamente el heartbeat real de cada uno, no el solo hecho
-                # de aparecer en esta lista de topología (si no, "resucita" a barcos muertos
-                # cada vez que otro distinto se reincorpora).
 
         logging.info(f"Topología del anillo actualizada: Barco {reincorporado_id} se reincorporó. Nodos: {len(nueva_topologia)}")
         if self.es_primario:
             self._replicar_estado(reloj_logico)
         return True
-
-    # --- Operaciones de Estado y Lamport ---
     
     def _actualizar_lamport(self, remoto_lamport):
         global reloj_logico
@@ -195,7 +166,6 @@ class BarcoServicio:
             return reloj_logico
 
     def obtener_estado(self):
-        """Devuelve el estado local del barco."""
         global reloj_logico
         return {
             "id": self.id,
@@ -210,7 +180,6 @@ class BarcoServicio:
         }
 
     def obtener_estado_flota(self):
-        """Invocado por la Central para leer todo el estado (solo si es primario)."""
         if not self.es_primario:
             raise Exception(f"Barco {self.id} no es el primario")
         with lock:
@@ -223,11 +192,8 @@ class BarcoServicio:
 
     def obtener_primario_actual(self):
         return self.primario_id
-
-    # --- Acciones (Barco -> Primario -> Central) ---
     
     def solicitar_accion_local(self, accion, datos):
-        """El operador local pide una acción."""
         global reloj_logico
         with lock:
             reloj_logico += 1
@@ -250,14 +216,12 @@ class BarcoServicio:
                 logging.error(f"Error enviando acción al primario: {e}")
                 
     def solicitar_accion(self, accion, datos, barco_origen, remoto_lamport):
-        """Recibe una acción de otro barco (solo si soy primario)."""
         l_actual = self._actualizar_lamport(remoto_lamport)
         registrar_evento(f"Recibida solicitud de acción '{accion}' del barco {barco_origen}", l_actual)
         if self.es_primario:
             self._elevar_solicitud_central(accion, datos, barco_origen, l_actual)
             
     def _elevar_solicitud_central(self, accion, datos, barco_origen, lamport):
-        """El primario envía la solicitud a la central."""
         try:
             ns_host, ns_port = self.central_uri.split(":")
             ns = Pyro5.api.locate_ns(host=ns_host, port=int(ns_port))
@@ -277,7 +241,6 @@ class BarcoServicio:
             logging.error(f"Error elevando acción a la central: {e}")
 
     def recibir_resolucion_solicitud(self, solicitud_id, accion, barco_origen, decision):
-        """Invocado por la Central sobre el Primario cuando el operador resuelve una solicitud."""
         global reloj_logico
         with lock:
             reloj_logico += 1
@@ -317,7 +280,6 @@ class BarcoServicio:
                 return {"entregado": False, "motivo": "nodo no registrado o URI no encontrada"}
 
     def notificar_resolucion(self, accion, decision, solicitud_id=None):
-        """Invocado por el Primario hacia este barco cuando la Central resolvió su solicitud."""
         global reloj_logico
         with lock:
             reloj_logico += 1
@@ -330,11 +292,8 @@ class BarcoServicio:
         registrar_evento(msg, l_actual)
         print(f"\n>>> [{estado_str}] Solicitud{sol_str} '{accion}' ha sido {decision.lower()} por la Central <<<\n> ", end="", flush=True)
         return True
-
-    # --- Replicación (Remote-Write) ---
     
     def _replicar_estado(self, l_actual):
-        """Envía el estado_flota actual a todos los backups."""
         for p_id, p_uri in self.topologia:
             if p_id == self.id: continue
             
@@ -343,19 +302,16 @@ class BarcoServicio:
                 backup._pyroTimeout = 1.0
                 backup.replicar(self.estado_flota, l_actual)
             except Exception:
-                pass # Si no contesta, lo ignoramos por ahora (el heartbeat se encarga)
+                pass 
 
     def replicar(self, estado_flota, remoto_lamport):
-        """Invocado por el primario para actualizar a este backup."""
         l_actual = self._actualizar_lamport(remoto_lamport)
         with lock:
             self.estado_flota = estado_flota
-            self.ultimo_latido = time.time() # Cuenta como latido
-        # registrar_evento(f"Estado replicado recibido del primario", l_actual) # Mucho spam
+            self.ultimo_latido = time.time() 
         return True
 
     def actualizar_posicion(self, barco_id, lat, lon, rumbo, vel, remoto_lamport):
-        """Invocado por un barco hacia el primario para notificar su movimiento."""
         if not self.es_primario: return
         
         l_actual = self._actualizar_lamport(remoto_lamport)
@@ -380,7 +336,6 @@ class BarcoServicio:
                 logging.info(f"Barco {barco_id} ha restablecido contacto. Estado: ACTIVO.")
                 registrar_evento(f"Barco {barco_id} reconectado / activo", l_actual)
 
-            # Actualizo mi propio estado si soy yo
             if barco_id == self.id:
                 self.latitud = lat
                 self.longitud = lon
@@ -388,18 +343,14 @@ class BarcoServicio:
                 self.velocidad = vel
         
         self._replicar_estado(l_actual)
-
-    # --- Heartbeat y Elección en Anillo ---
     
     def heartbeat(self, barco_origen=None):
-        """Responde True si está vivo y actualiza último contacto."""
         if barco_origen is not None:
             with lock:
                 self.ultimos_contactos[barco_origen] = time.time()
         return True
 
     def _mandar_al_siguiente(self, metodo, *args):
-        """Recorre el anillo enviando un mensaje al primer nodo que responda."""
         if not self.topologia: return None
         
         mi_pos = 0
@@ -456,7 +407,7 @@ class BarcoServicio:
                 repetido = (self.ultimo_anuncio == (ganador, origen, numero))
                 self.ultimo_anuncio = (ganador, origen, numero)
                 
-            if repetido: return True # Dio la vuelta
+            if repetido: return True 
             
             if self._proclamar(ganador):
                 if ganador == self.id:
@@ -486,10 +437,6 @@ class BarcoServicio:
             self.es_primario = True
             self.primario_id = self.id
             
-            # Reconstruir estado_flota si estuviera incompleto (por ejemplo, si no era
-            # primario cuando me reincorporé y nunca llegué a tener la tabla completa).
-            # Uso la topología (que siempre conozco) para no perder de la tabla a barcos
-            # que en realidad siguen vivos, solo porque yo no tenía guardado su estado.
             if self.id not in self.estado_flota:
                 self.estado_flota[self.id] = self.obtener_estado()
             for p_id, _ in self.topologia:
@@ -504,10 +451,9 @@ class BarcoServicio:
                         "es_primario": False,
                         "lamport": reloj_logico,
                     }
-                    self.ultimos_contactos[p_id] = time.time()  # todavía sin evidencia de que esté muerto
+                    self.ultimos_contactos[p_id] = time.time()  
 
             ahora = time.time()
-            # Marcar al primario caído y nodos que no respondieron como inactivos
             for p_id in list(self.estado_flota.keys()):
                 if p_id != self.id:
                     ultimo = self.ultimos_contactos.get(p_id, 0)
@@ -523,7 +469,6 @@ class BarcoServicio:
         registrar_evento(f"Asumido rol de PRIMARIO / Coordinador", l_act)
         self._replicar_estado(l_act)
 
-        # Actualizar en NS y notificar a Central
         try:
             ns_host, ns_port = self.central_uri.split(":")
             ns = Pyro5.api.locate_ns(host=ns_host, port=int(ns_port))
@@ -546,17 +491,13 @@ class BarcoServicio:
 # --- Hilos en segundo plano ---
 
 def hilo_movimiento(barco):
-    """Simula el movimiento del barco cada 5 segundos."""
     while True:
         time.sleep(5)
-        if not barco.topologia: continue # Aún no inició
+        if not barco.topologia: continue 
         
-        # Variación aleatoria de rumbo y velocidad
         barco.rumbo = (barco.rumbo + random.uniform(-5, 5)) % 360
         barco.velocidad = max(0.0, min(30.0, barco.velocidad + random.uniform(-1, 1)))
         
-        # Actualizar lat/lon basado en velocidad (knots) y rumbo
-        # 1 knot = 1 milla náutica por hora = 1/60 grados por hora aprox
         distancia_grados = (barco.velocidad / 3600) * 5 * (1/60)
         rad = math.radians(barco.rumbo)
         barco.latitud += math.cos(rad) * distancia_grados
@@ -579,7 +520,6 @@ def hilo_movimiento(barco):
                     pass
 
 def hilo_vigilante(barco):
-    """Vigila heartbeats y latidos del primario y de los backups."""
     TIMEOUT_PRIMARIO = 6.0
     TIMEOUT_BACKUP = 9.0
     while True:
@@ -606,7 +546,6 @@ def hilo_vigilante(barco):
             if hubo_cambio:
                 barco._replicar_estado(reloj_logico)
         else:
-            # Backup vigila al primario
             with lock:
                 silencio = time.time() - barco.ultimo_latido
                 en_eleccion = barco.en_eleccion
@@ -616,30 +555,39 @@ def hilo_vigilante(barco):
             if silencio > TIMEOUT_PRIMARIO:
                 barco._iniciar_eleccion("El primario no responde")
             else:
-                # Enviar heartbeat al primario informando origen
                 if barco.primario_id and barco.primario_id in barco.peers_uris:
                     try:
                         prim = Pyro5.api.Proxy(barco.peers_uris[barco.primario_id])
                         prim._pyroTimeout = 1.0
                         prim.heartbeat(barco.id)
                     except Exception:
-                        pass # El silencio se acumulará y disparará elección
+                        pass 
 
 # --- CLI y Main ---
 
 def cmd_loop(barco):
     time.sleep(2)
-    print("\nComandos disponibles: ataque_aereo, solicitar_suministros, reportar_avistamiento, evacuacion_medica, solicitar_refuerzos, ubicaciones")
+    print("\nComandos disponibles: ataque_aereo, solicitar_suministros, evacuacion_medica, solicitar_refuerzos, ubicaciones")
     while True:
         try:
             cmd = input("> ").strip().lower()
             if not cmd: continue
 
-            if cmd in ["ataque_aereo", "solicitar_suministros", "reportar_avistamiento", "evacuacion_medica", "solicitar_refuerzos"]:
-                # Generamos datos dummy para el ejemplo
-                datos = {"coordenadas": (barco.latitud, barco.longitud), "info": "Urgent"}
+            if cmd in ["solicitar_suministros", "evacuacion_medica", "solicitar_refuerzos"]:
+                datos = {"coordenadas": (barco.latitud, barco.longitud), "info": "Urgente"}
                 barco.solicitar_accion_local(cmd, datos)
-            elif cmd in ["ubicaciones", "flota"]: #Ubicaciones desde los barcos
+                
+            elif cmd == "ataque_aereo":
+                print(">>> INGRESE COORDENADAS DEL OBJETIVO <<<")
+                try:
+                    lat_obj = float(input("Latitud (ej: -40.5): "))
+                    lon_obj = float(input("Longitud (ej: -50.0): "))
+                    datos = {"coordenadas": (lat_obj, lon_obj), "info": "Destrucción total"}
+                    barco.solicitar_accion_local(cmd, datos)
+                except ValueError:
+                    print("Coordenadas inválidas. Acción cancelada.")
+                    
+            elif cmd in ["ubicaciones", "flota"]:
                 if not barco.estado_flota:
                     print("Aún no hay datos de la flota.")
                 else:
@@ -678,12 +626,10 @@ def main():
     barco = BarcoServicio(args.id, args.nombre, args.host, args.port, args.lat, args.lon, args.rumbo, args.vel, args.central)
     uri = daemon.register(barco, f"barco_{args.id}")
     
-    # Iniciar hilos
     threading.Thread(target=hilo_movimiento, args=(barco,), daemon=True).start()
     threading.Thread(target=hilo_vigilante, args=(barco,), daemon=True).start()
     threading.Thread(target=cmd_loop, args=(barco,), daemon=True).start()
     
-    # Registrarse en la central
     threading.Thread(target=barco.registrar_en_central, args=(uri,), daemon=True).start()
 
     logging.info(f"Barco {args.id} '{args.nombre}' escuchando en {uri}")
