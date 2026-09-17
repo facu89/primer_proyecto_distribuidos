@@ -28,7 +28,8 @@ barcos_registrados = {}
 flota_formada = False
 estado_flota = {}
 eventos_lamport = []
-solicitudes_recibidas = []
+solicitudes_recibidas = {}
+solicitud_id_counter = 0
 historial_comunicacion = []  # [{barco_id, lamport, timestamp, direccion, mensaje}, ...] en orden de llegada
 NS_HOST = "127.0.0.1"
 NS_PORT = 9090
@@ -118,32 +119,33 @@ class CentralServicio:
         return {"flota_formada": False}
 
     def recibir_solicitud(self, accion, datos, barco_origen, lamport):
-        solicitudes_recibidas.append({
-            "accion": accion,
-            "datos": datos,
-            "origen": barco_origen,
-            "lamport": lamport,
-            "timestamp": time.time()
-        })
-        logging.info(f"[L:{lamport}] Recibida solicitud '{accion}' del barco {barco_origen}")
-        eventos_lamport.append((lamport, time.time(), f"Solicitud '{accion}' recibida del Barco {barco_origen}"))
+        global solicitud_id_counter, reloj_logico_central
+        with lock_central:
+            solicitud_id_counter += 1
+            sol_id = solicitud_id_counter
+            solicitudes_recibidas[sol_id] = {
+                "id": sol_id,
+                "accion": accion,
+                "datos": datos,
+                "origen": barco_origen,
+                "lamport": lamport,
+                "timestamp": time.time(),
+                "estado": "pendiente"
+            }
+            reloj_logico_central = max(reloj_logico_central, lamport) + 1
+            logging.info(f"[L:{lamport}] Recibida solicitud #{sol_id} '{accion}' del barco {barco_origen}")
+            eventos_lamport.append((lamport, time.time(), f"Solicitud #{sol_id} '{accion}' recibida del Barco {barco_origen}"))
 
-        historial_comunicacion.append({
-            "barco_id": barco_origen,
-            "lamport": lamport,
-            "timestamp": time.time(),
-            "direccion": "barco->central",
-            "mensaje": f"Solicitud '{accion}' ({datos})"
-        })
-        historial_comunicacion.append({
-            "barco_id": barco_origen,
-            "lamport": lamport,
-            "timestamp": time.time(),
-            "direccion": "central->barco",
-            "mensaje": "ACK recibido"
-        })
+            historial_comunicacion.append({
+                "solicitud_id": sol_id,
+                "barco_id": barco_origen,
+                "lamport": lamport,
+                "timestamp": time.time(),
+                "direccion": "barco->central",
+                "mensaje": f"Solicitud #{sol_id} '{accion}' ({datos})"
+            })
 
-        return {"recibido": True}
+        return {"id": sol_id, "recibido": True}
 
     def notificar_nuevo_primario(self, primario_id):
         global estado_flota
@@ -188,7 +190,8 @@ class CentralServicio:
                 "flota_formada": flota_formada,
                 "estado_flota": dict(estado_flota),
                 "eventos_lamport": list(eventos_lamport),
-                "solicitudes_recibidas": list(solicitudes_recibidas),
+                "solicitudes_recibidas": dict(solicitudes_recibidas),
+                "solicitud_id_counter": solicitud_id_counter,
                 "historial_comunicacion": list(historial_comunicacion),
             }
 
@@ -200,7 +203,7 @@ class CentralServicio:
         si YO también me creía Principal pero quien me está replicando tiene mayor ID,
         le cedo el rol. Si tengo mayor ID, ignoro su réplica (la mía es la legítima).
         """
-        global flota_formada, ultimo_latido_principal, reloj_logico_central, soy_principal
+        global flota_formada, ultimo_latido_principal, reloj_logico_central, soy_principal, solicitud_id_counter
         with lock_central:
             if soy_principal:
                 if origen_id > CENTRAL_ID:
@@ -217,7 +220,11 @@ class CentralServicio:
             estado_flota.clear()
             estado_flota.update(payload["estado_flota"])
             eventos_lamport[:] = payload["eventos_lamport"]
-            solicitudes_recibidas[:] = payload["solicitudes_recibidas"]
+            solicitud_id_counter = max(solicitud_id_counter, payload.get("solicitud_id_counter", 0))
+            solicitudes_recibidas.clear()
+            for k, v in payload.get("solicitudes_recibidas", {}).items():
+                k_int = int(k) if str(k).isdigit() else k
+                solicitudes_recibidas[k_int] = v
             historial_comunicacion[:] = payload["historial_comunicacion"]
             ultimo_latido_principal = time.time()
         return True
@@ -374,7 +381,8 @@ def _replicar_a_backups():
             "flota_formada": flota_formada,
             "estado_flota": dict(estado_flota),
             "eventos_lamport": list(eventos_lamport),
-            "solicitudes_recibidas": list(solicitudes_recibidas),
+            "solicitudes_recibidas": dict(solicitudes_recibidas),
+            "solicitud_id_counter": solicitud_id_counter,
             "historial_comunicacion": list(historial_comunicacion),
         }
 
@@ -598,11 +606,78 @@ def ver_ubicaciones():
         print(f"(Última actualización hace {time.time() - ultima_actualizacion_ubicaciones:.0f}s)")
     _imprimir_tabla_ubicaciones(ultimas_ubicaciones)
 
+def ver_solicitudes_pendientes():
+    """Muestra la tabla de solicitudes pendientes de resolución."""
+    with lock_central:
+        pendientes = [s for s in solicitudes_recibidas.values() if s.get("estado") == "pendiente"]
+    if not pendientes:
+        print("No hay solicitudes pendientes.")
+        return
+    print(f"\n{'ID':<5}{'ORIGEN':<10}{'ACCIÓN':<25}{'ESTADO':<12}{'HORA'}")
+    for s in sorted(pendientes, key=lambda x: x.get("id", 0)):
+        hora = time.strftime("%H:%M:%S", time.localtime(s.get("timestamp", time.time())))
+        print(f"{s.get('id', '?'):<5}Barco {s.get('origen', '?'):<4} {s.get('accion', ''):<25}{s.get('estado', ''):<12}{hora}")
+
+def _resolver_solicitud(solicitud_id, decision):
+    """Resuelve una solicitud ('aceptada' o 'rechazada'), registra en historial y notifica al Primario."""
+    global reloj_logico_central
+    with lock_central:
+        sol_id_key = None
+        for k in (solicitud_id, int(solicitud_id) if str(solicitud_id).isdigit() else None, str(solicitud_id)):
+            if k in solicitudes_recibidas:
+                sol_id_key = k
+                break
+        if sol_id_key is None:
+            print(f"Error: La solicitud #{solicitud_id} no existe.")
+            return False
+        
+        sol = solicitudes_recibidas[sol_id_key]
+        if sol.get("estado") != "pendiente":
+            print(f"Error: La solicitud #{solicitud_id} ya fue resuelta ({sol.get('estado')}).")
+            return False
+
+        sol["estado"] = decision
+        reloj_logico_central += 1
+        l_actual = reloj_logico_central
+
+        accion = sol["accion"]
+        barco_origen = sol["origen"]
+        sol_real_id = sol.get("id", solicitud_id)
+        desc = f"Solicitud #{sol_real_id} '{accion}' {decision.upper()} para Barco {barco_origen}"
+        logging.info(f"[L:{l_actual}] {desc}")
+        eventos_lamport.append((l_actual, time.time(), desc))
+
+        historial_comunicacion.append({
+            "solicitud_id": sol_real_id,
+            "barco_id": barco_origen,
+            "lamport": l_actual,
+            "timestamp": time.time(),
+            "direccion": "central->barco",
+            "mensaje": f"{decision.upper()}: {accion} (Solicitud #{sol_real_id})"
+        })
+
+    # Replicar a respaldos de la central
+    _replicar_a_backups()
+
+    # Notificar al Primario de la flota vía RPC
+    try:
+        ns = Pyro5.api.locate_ns(host=NS_HOST, port=NS_PORT)
+        primario_uri = ns.lookup("flota.primario")
+        primario = Pyro5.api.Proxy(primario_uri)
+        primario._pyroTimeout = 3.0
+        primario.recibir_resolucion_solicitud(sol_real_id, accion, barco_origen, decision)
+        print(f"Resolución enviada con éxito al Primario para Barco {barco_origen}: [{decision.upper()}] {accion}")
+        return True
+    except Exception as e:
+        logging.error(f"Error notificando resolución al Primario: {e}")
+        print(f"Advertencia: No se pudo contactar al Primario para notificar resolución: {e}")
+        return False
+
 def cmd_loop(ns_host, ns_port):
     time.sleep(2)
     while True:
         try:
-            print("\nComandos: formar flota, estado, solicitar ubicaciones, ver ubicaciones, log, rol, historial, q")
+            print("\nComandos: formar flota, estado, solicitar ubicaciones, ver ubicaciones, pendientes, aceptar <id>, rechazar <id>, log, rol, historial, q")
             cmd = input("> ").strip().lower()
             if not cmd: continue
 
@@ -620,6 +695,26 @@ def cmd_loop(ns_host, ns_port):
                     solicitar_ubicaciones(ns_host, ns_port)
             elif cmd == "ver ubicaciones":
                 ver_ubicaciones()
+            elif cmd == "pendientes":
+                ver_solicitudes_pendientes()
+            elif cmd.startswith("aceptar "):
+                if not soy_principal:
+                    print("Esta Central es de RESPALDO. Solo la CENTRAL PRINCIPAL puede resolver solicitudes.")
+                else:
+                    partes = cmd.split()
+                    if len(partes) == 2 and partes[1].isdigit():
+                        _resolver_solicitud(int(partes[1]), "aceptada")
+                    else:
+                        print("Uso: aceptar <id>")
+            elif cmd.startswith("rechazar "):
+                if not soy_principal:
+                    print("Esta Central es de RESPALDO. Solo la CENTRAL PRINCIPAL puede resolver solicitudes.")
+                else:
+                    partes = cmd.split()
+                    if len(partes) == 2 and partes[1].isdigit():
+                        _resolver_solicitud(int(partes[1]), "rechazada")
+                    else:
+                        print("Uso: rechazar <id>")
             elif cmd == "log":
                 for l, t, desc in eventos_lamport:
                     print(f"L:{l} | {desc}")
@@ -717,7 +812,11 @@ def main():
             flota_formada = estado["flota_formada"]
             estado_flota.update(estado["estado_flota"])
             eventos_lamport.extend(estado["eventos_lamport"])
-            solicitudes_recibidas.extend(estado["solicitudes_recibidas"])
+            solicitudes_recibidas.clear()
+            for k, v in estado.get("solicitudes_recibidas", {}).items():
+                k_int = int(k) if str(k).isdigit() else k
+                solicitudes_recibidas[k_int] = v
+            solicitud_id_counter = max(solicitud_id_counter, estado.get("solicitud_id_counter", 0))
             historial_comunicacion.extend(estado["historial_comunicacion"])
             soy_principal = False
             ultimo_latido_principal = time.time()

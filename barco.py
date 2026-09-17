@@ -88,6 +88,7 @@ class BarcoServicio:
         # Estado de toda la flota (solo el primario lo mantiene completo)
         self.estado_flota = {}
         self.ultimos_contactos = {} # id -> timestamp del último mensaje/posición recibido
+        self.solicitudes_en_vuelo = {} # {solicitud_id: barco_origen} tracking de pedidos a Central
 
     # --- Métodos de ciclo de vida e inicialización ---
     
@@ -255,11 +256,71 @@ class BarcoServicio:
             ns = Pyro5.api.locate_ns(host=ns_host, port=int(ns_port))
             central_uri = ns.lookup("flota.central")
             central = Pyro5.api.Proxy(central_uri)
-            central._pyroTimeout = 2.0
-            central.recibir_solicitud(accion, datos, barco_origen, lamport)
-            registrar_evento(f"Acción '{accion}' elevada a la Central", lamport)
+            central._pyroTimeout = 3.0
+            resp = central.recibir_solicitud(accion, datos, barco_origen, lamport)
+            sol_id = resp.get("id") if isinstance(resp, dict) else None
+            if sol_id is not None:
+                with lock:
+                    self.solicitudes_en_vuelo[sol_id] = barco_origen
+                logging.info(f"Solicitud #{sol_id} '{accion}' (origen: Barco {barco_origen}) registrada en Central. Esperando resolución...")
+                registrar_evento(f"Acción #{sol_id} '{accion}' elevada a la Central", lamport)
+            else:
+                registrar_evento(f"Acción '{accion}' elevada a la Central", lamport)
         except Exception as e:
             logging.error(f"Error elevando acción a la central: {e}")
+
+    def recibir_resolucion_solicitud(self, solicitud_id, accion, barco_origen, decision):
+        """Invocado por la Central sobre el Primario cuando el operador resuelve una solicitud."""
+        global reloj_logico
+        with lock:
+            reloj_logico += 1
+            l_actual = reloj_logico
+            self.solicitudes_en_vuelo.pop(solicitud_id, None)
+
+        msg = f"Resolución de Central para Solicitud #{solicitud_id} '{accion}' (Barco {barco_origen}): [{decision.upper()}]"
+        logging.info(f"[L:{l_actual}] {msg}")
+        registrar_evento(msg, l_actual)
+
+        if barco_origen == self.id:
+            self.notificar_resolucion(accion, decision, solicitud_id)
+        else:
+            destino_uri = self.peers_uris.get(barco_origen)
+            if not destino_uri:
+                try:
+                    ns_host, ns_port = self.central_uri.split(":")
+                    ns = Pyro5.api.locate_ns(host=ns_host, port=int(ns_port))
+                    destino_uri = ns.lookup(f"flota.barco.{barco_origen}")
+                except Exception:
+                    destino_uri = None
+
+            if destino_uri:
+                try:
+                    proxy = Pyro5.api.Proxy(destino_uri)
+                    proxy._pyroTimeout = 3.0
+                    proxy.notificar_resolucion(accion, decision, solicitud_id)
+                    logging.info(f"Resolución de #{solicitud_id} notificada al Barco {barco_origen}")
+                except Exception as e:
+                    logging.error(f"No se pudo notificar resolución al Barco {barco_origen}: {e}")
+            else:
+                logging.warning(f"No se encontró URI para notificar al Barco {barco_origen}")
+
+        return True
+
+    def notificar_resolucion(self, accion, decision, solicitud_id=None):
+        """Invocado por el Primario hacia este barco cuando la Central resolvió su solicitud."""
+        global reloj_logico
+        with lock:
+            reloj_logico += 1
+            l_actual = reloj_logico
+
+        sol_str = f" #{solicitud_id}" if solicitud_id else ""
+        estado_str = decision.upper()
+        msg = f"Respuesta de Central para solicitud{sol_str} '{accion}': [{estado_str}]"
+
+        logging.info(f"[L:{l_actual}] {msg}")
+        registrar_evento(msg, l_actual)
+        print(f"\n>>> [{estado_str}] Solicitud{sol_str} '{accion}' ha sido {decision.lower()} por la Central <<<\n> ", end="", flush=True)
+        return True
 
     # --- Replicación (Remote-Write) ---
     
