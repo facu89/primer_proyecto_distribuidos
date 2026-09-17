@@ -3,20 +3,50 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Naval Fleet Command - Tactical World Display</title>
-    <!-- Google Fonts & Leaflet CSS -->
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap">
+    <title>Naval Fleet Command - Global Defense Tactical Display</title>
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         :root {
-            --crt-green: #33ff33;
-            --crt-green-dim: rgba(51, 255, 51, 0.4);
-            --crt-green-glow: rgba(51, 255, 51, 0.8);
-            --crt-bg: #030d03;
-            --crt-panel: rgba(3, 20, 3, 0.85);
-            --crt-red: #ff3333;
-            --crt-cyan: #00ffff;
-            --crt-gold: #ffdd33;
+            /* Backgrounds & Glass Surfaces */
+            --bg-void: #05070e;
+            --panel-glass: rgba(10, 15, 29, 0.78);
+            --panel-glass-hover: rgba(15, 23, 42, 0.9);
+            --panel-glass-solid: #0b1120;
+            --panel-border: rgba(255, 255, 255, 0.09);
+            --panel-border-bright: rgba(56, 189, 248, 0.35);
+
+            /* Typography */
+            --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+            --text-main: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+
+            /* Luminous Cyber Accents */
+            --neon-cyan: #38bdf8;
+            --neon-cyan-glow: rgba(56, 189, 248, 0.35);
+            --neon-blue: #60a5fa;
+            --neon-amber: #fbbf24;
+            --neon-amber-glow: rgba(251, 191, 36, 0.35);
+            --neon-emerald: #10b981;
+            --neon-emerald-glow: rgba(16, 185, 129, 0.35);
+            --neon-rose: #f43f5e;
+            --neon-rose-glow: rgba(244, 63, 94, 0.35);
+
+            /* Modern Geometry */
+            --radius-xl: 16px;
+            --radius-lg: 12px;
+            --radius-md: 8px;
+            --radius-sm: 6px;
+            --radius-full: 9999px;
+
+            /* Deep Tactical Shadow */
+            --shadow-elevation: 0 16px 36px -4px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.08);
+            --shadow-subtle: 0 6px 18px 0 rgba(0, 0, 0, 0.45);
         }
 
         * {
@@ -29,112 +59,191 @@
             padding: 0;
             width: 100%;
             height: 100%;
-            background-color: #000;
-            font-family: 'Share Tech Mono', monospace;
+            background-color: var(--bg-void);
+            font-family: var(--font-ui);
             overflow: hidden;
-            color: var(--crt-green);
+            color: var(--text-main);
+            -webkit-font-smoothing: antialiased;
         }
 
-        .crt-container {
+        /* Tactical Container with subtle high-tech dot grid */
+        .cyber-container {
             position: relative;
             width: 100%;
             height: 100%;
             overflow: hidden;
-            background: #000;
-        }
-
-        /* Scanline Overlay */
-        .crt-container::before {
-            content: " ";
-            display: block;
-            position: absolute;
-            top: 0; left: 0; bottom: 0; right: 0;
-            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.35) 50%), 
-                        linear-gradient(90deg, rgba(255, 0, 0, 0.04), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.04));
-            z-index: 999;
-            background-size: 100% 3px, 3px 100%;
-            pointer-events: none;
-        }
-
-        /* CRT Screen Vignette */
-        .crt-container::after {
-            content: " ";
-            display: block;
-            position: absolute;
-            top: 0; left: 0; bottom: 0; right: 0;
-            box-shadow: inset 0 0 120px rgba(0,0,0,0.95);
-            z-index: 1000;
-            pointer-events: none;
+            background: radial-gradient(circle, rgba(56, 189, 248, 0.06) 1px, transparent 1px) 0 0 / 32px 32px, var(--bg-void);
         }
 
         /* Leaflet Map Container */
         #map {
             width: 100%;
             height: 100%;
-            background: #020802;
+            background: #020408;
             z-index: 1;
         }
 
-        /* Tactical Radar Phosphor Tint on CartoDB Dark Tiles */
+        /* Monochromatic high-contrast dark satellite look with glowing city lights */
         .leaflet-tile-pane {
-            filter: brightness(1.2) contrast(1.4) sepia(100%) hue-rotate(82deg) saturate(550%);
+            filter: brightness(1.3) contrast(1.8) grayscale(100%);
+        }
+
+        /* Tactical vector border styling for continents and countries */
+        .country-border-path {
+            stroke: rgba(255, 255, 255, 0.42) !important;
+            stroke-width: 0.85px !important;
+            fill: rgba(255, 255, 255, 0.035) !important;
+            vector-effect: non-scaling-stroke;
         }
 
         /* Graticule grid line styling */
         .graticule-line {
-            stroke: rgba(51, 255, 51, 0.3);
+            stroke: rgba(255, 255, 255, 0.06);
             stroke-width: 1px;
-            stroke-dasharray: 4, 6;
+            stroke-dasharray: 4, 8;
         }
 
-        /* HUD Panels */
+        .graticule-label {
+            background: transparent;
+            border: none;
+            color: rgba(148, 163, 184, 0.55);
+            font-family: var(--font-mono);
+            font-size: 10px;
+            letter-spacing: 0.5px;
+            pointer-events: none;
+        }
+
+        .place-label {
+            background: transparent;
+            border: none;
+            color: var(--text-main);
+            font-family: var(--font-ui);
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 1px;
+            text-shadow: 0 0 6px rgba(0,0,0,0.9), 0 0 10px rgba(56, 189, 248, 0.4);
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
+        .leaflet-container {
+            cursor: crosshair !important;
+        }
+
+        /* Modern Glassmorphic HUD Panels */
         .hud-panel {
             position: absolute;
             z-index: 500;
-            background: var(--crt-panel);
-            border: 1px solid var(--crt-green);
-            padding: 10px 14px;
-            box-shadow: 0 0 12px rgba(51, 255, 51, 0.25), inset 0 0 10px rgba(0, 30, 0, 0.7);
-            text-shadow: 0 0 5px var(--crt-green-dim);
-            backdrop-filter: blur(2px);
+            background: var(--panel-glass);
+            backdrop-filter: blur(18px) saturate(160%);
+            -webkit-backdrop-filter: blur(18px) saturate(160%);
+            border: 1px solid var(--panel-border);
+            border-radius: var(--radius-lg);
+            padding: 14px 18px;
+            box-shadow: var(--shadow-elevation);
+            color: var(--text-main);
+            transition: border-color 0.25s, box-shadow 0.25s;
+        }
+
+        .hud-panel:hover {
+            border-color: rgba(255, 255, 255, 0.16);
         }
 
         /* Header / Telemetry HUD */
         .hud-top-left {
-            top: 18px;
-            left: 18px;
-            font-size: 14px;
-            line-height: 1.45;
-            min-width: 250px;
+            top: 20px;
+            left: 20px;
+            min-width: 270px;
+            font-size: 13px;
+            line-height: 1.5;
         }
 
+        .hud-title-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .hud-title {
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            color: #ffffff;
+            text-shadow: 0 0 12px rgba(255, 255, 255, 0.3);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: var(--radius-full);
+            background: var(--neon-emerald);
+            box-shadow: 0 0 10px var(--neon-emerald);
+            display: inline-block;
+            animation: live-pulse 2s infinite;
+        }
+
+        @keyframes live-pulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.45; transform: scale(0.85); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        .hud-kv {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 2px;
+        }
+
+        .hud-kv .val {
+            font-family: var(--font-mono);
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        /* Top Right Fleet Status HUD */
         .hud-top-right {
-            top: 18px;
-            right: 18px;
-            font-size: 13px;
-            line-height: 1.45;
+            top: 20px;
+            right: 20px;
+            min-width: 270px;
+            font-size: 12px;
+            line-height: 1.5;
             text-align: right;
+        }
+
+        .hud-top-right .hud-kv {
+            justify-content: flex-end;
+            gap: 12px;
         }
 
         /* Bottom Events Console */
         .hud-bottom {
-            bottom: 18px;
-            left: 18px;
-            right: 18px;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
             max-height: 130px;
             display: flex;
             flex-direction: column;
-            padding: 8px 12px;
+            padding: 10px 16px;
             font-size: 12px;
+            border-radius: var(--radius-lg);
         }
 
         .events-title {
-            font-weight: bold;
-            border-bottom: 1px dashed var(--crt-green-dim);
-            padding-bottom: 4px;
-            margin-bottom: 4px;
+            font-weight: 600;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+            padding-bottom: 6px;
+            margin-bottom: 6px;
             display: flex;
             justify-content: space-between;
+            align-items: center;
         }
 
         .events-list {
@@ -142,198 +251,157 @@
             flex-grow: 1;
             display: flex;
             flex-direction: column-reverse;
-            gap: 2px;
+            gap: 4px;
+            font-family: var(--font-mono);
+            font-size: 11px;
         }
 
         .events-list::-webkit-scrollbar {
             width: 4px;
         }
         .events-list::-webkit-scrollbar-thumb {
-            background: var(--crt-green);
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: var(--radius-full);
         }
 
         .event-item {
             display: flex;
             gap: 12px;
-            opacity: 0.9;
+            align-items: baseline;
+            color: var(--text-secondary);
         }
+
         .event-item.alert {
-            color: #ffff33;
-            text-shadow: 0 0 6px #ffff33;
+            color: var(--neon-amber);
         }
 
-        /* Controls */
+        /* Tactical Modern Buttons */
         .tactical-btn {
-            background: rgba(0, 40, 0, 0.6);
-            border: 1px solid var(--crt-green);
-            color: var(--crt-green);
-            font-family: inherit;
-            padding: 5px 12px;
+            background: rgba(56, 189, 248, 0.08);
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            border-radius: var(--radius-md);
+            color: var(--neon-cyan);
+            font-family: var(--font-ui);
+            font-weight: 600;
+            font-size: 11px;
+            padding: 7px 14px;
             cursor: pointer;
-            margin-top: 6px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            transition: all 0.2s;
-            box-shadow: 0 0 5px var(--crt-green-dim);
+            margin-top: 8px;
+            letter-spacing: 0.4px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
         }
 
-        .tactical-btn:hover {
-            background: var(--crt-green);
-            color: #000;
-            box-shadow: 0 0 15px var(--crt-green);
+        .tactical-btn:hover:not(:disabled) {
+            background: rgba(56, 189, 248, 0.22);
+            border-color: var(--neon-cyan);
+            box-shadow: 0 0 16px var(--neon-cyan-glow);
+            color: #ffffff;
+            transform: translateY(-1px);
+        }
+
+        .tactical-btn:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+            border-color: rgba(255, 255, 255, 0.1);
+            color: var(--text-muted);
+            transform: none;
+            box-shadow: none;
         }
 
         /* Ship Marker Blip and Label */
         .ship-marker-container {
             position: relative;
-            width: 24px;
-            height: 24px;
+            width: 26px;
+            height: 26px;
             pointer-events: auto;
             cursor: pointer;
         }
 
-        /* Pulsing Radar Ring */
+        /* Smooth Radar Pulse Ring */
         .radar-pulse {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 24px;
-            height: 24px;
-            border: 1.5px solid var(--crt-green);
+            width: 26px;
+            height: 26px;
+            border: 1.5px solid var(--neon-cyan);
             border-radius: 50%;
-            animation: pulse-ring 2.5s infinite linear;
+            animation: pulse-ring 2.8s infinite cubic-bezier(0.2, 0, 0.4, 1);
             pointer-events: none;
         }
 
         .ship-marker-container.primary .radar-pulse {
-            border-color: var(--crt-gold);
-            animation-duration: 1.8s;
+            border-color: #ffffff;
+            animation-duration: 2s;
         }
 
         .ship-marker-container.offline .radar-pulse {
-            border-color: var(--crt-red);
+            border-color: var(--neon-rose);
             animation: none;
         }
 
         @keyframes pulse-ring {
-            0% { width: 8px; height: 8px; opacity: 1; }
-            100% { width: 42px; height: 42px; opacity: 0; }
+            0% { width: 10px; height: 10px; opacity: 1; }
+            100% { width: 48px; height: 48px; opacity: 0; }
         }
 
-        /* Heading Arrow / Icon */
         .ship-icon {
             position: absolute;
             top: 50%;
             left: 50%;
             transform-origin: center center;
             transition: transform 0.5s ease-out;
+            filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.8));
         }
 
-        /* Military Tag / Card beside the ship */
+        /* Floating Modern Glass Card beside ship */
         .ship-tactical-tag {
             position: absolute;
-            left: 28px;
-            top: -10px;
-            background: rgba(3, 20, 3, 0.9);
-            border: 1px solid var(--crt-green);
-            padding: 4px 8px;
+            left: 32px;
+            top: -12px;
+            background: rgba(10, 15, 29, 0.88);
+            backdrop-filter: blur(14px);
+            border: 1px solid var(--panel-border);
+            border-radius: var(--radius-md);
+            padding: 8px 12px;
+            font-family: var(--font-ui);
             font-size: 11px;
-            line-height: 1.35;
-            white-space: pre;
-            color: var(--crt-green);
-            text-shadow: 0 0 4px var(--crt-green-dim);
-            box-shadow: 0 0 8px rgba(0, 40, 0, 0.8);
-            min-width: 155px;
+            line-height: 1.4;
+            color: var(--text-main);
+            box-shadow: var(--shadow-subtle);
+            min-width: 175px;
             pointer-events: none;
-            transition: border-color 0.3s;
+            white-space: pre;
+            transition: border-color 0.3s, box-shadow 0.3s;
         }
 
         .ship-tactical-tag.primary {
-            border: 2px solid var(--crt-gold);
-            color: #fff;
-            text-shadow: 0 0 6px var(--crt-gold);
+            border-color: var(--neon-cyan);
+            box-shadow: 0 0 16px var(--neon-cyan-glow);
         }
 
         .ship-tactical-tag.offline {
-            border-color: var(--crt-red);
-            color: var(--crt-red);
-            text-shadow: 0 0 5px var(--crt-red);
+            border-color: var(--neon-rose);
+            color: var(--neon-rose);
         }
 
-        /* Coordinates Graticule Labels */
-        .graticule-label {
-            background: transparent;
-            border: none;
-            color: rgba(51, 255, 51, 0.5);
-            font-family: 'Share Tech Mono', monospace;
-            font-size: 11px;
-            text-shadow: 0 0 3px rgba(0,0,0,0.8);
-            pointer-events: none;
-        }
-
-        /* Etiquetas de lugares propias (superpuestas sobre el mapa base) */
-        .place-label {
-            background: transparent;
-            border: none;
-            color: var(--crt-green);
-            font-family: 'Share Tech Mono', monospace;
-            font-size: 12px;
-            font-weight: bold;
-            letter-spacing: 1px;
-            text-shadow: 0 0 4px rgba(0,0,0,0.9), 0 0 6px var(--crt-green-glow);
-            pointer-events: none;
-            white-space: nowrap;
-        }
-
-        /* Reticle crosshair cursor */
-        .leaflet-container {
-            cursor: crosshair !important;
-        }
-
-        /* Cartel de alerta: la Central de este dashboard dejó de responder */
-        #central-caida-overlay {
-            display: none;
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            z-index: 2000;
-            text-align: center;
-            border: 2px solid var(--crt-red);
-            color: var(--crt-red);
-            padding: 22px 36px;
-            min-width: 320px;
-        }
-
-        #central-caida-overlay .titulo {
-            font-size: 18px;
-            font-weight: bold;
-            letter-spacing: 2px;
-            text-shadow: 0 0 8px var(--crt-red);
-            animation: parpadeo 1s infinite;
-        }
-
-        #central-caida-overlay .detalle {
-            margin-top: 10px;
-            font-size: 13px;
-            color: var(--crt-green);
-        }
-
-        @keyframes parpadeo {
-            50% { opacity: 0.35; }
-        }
-
-        /* --- Panel Táctico de Solicitudes (Fase 2) --- */
+        /* Modern Tactical Requests Panel */
         .hud-requests {
-            top: 165px;
-            right: 18px;
+            top: 185px;
+            right: 20px;
             width: 350px;
-            max-height: calc(100vh - 330px);
+            max-height: calc(100vh - 350px);
             display: flex;
             flex-direction: column;
             padding: 0;
             overflow: hidden;
+            border-radius: var(--radius-lg);
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
@@ -341,18 +409,19 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 9px 12px;
-            background: rgba(5, 30, 5, 0.95);
-            border-bottom: 1px solid var(--crt-green-dim);
+            padding: 12px 16px;
+            background: rgba(15, 23, 42, 0.85);
+            border-bottom: 1px solid var(--panel-border);
             cursor: pointer;
-            font-weight: bold;
-            letter-spacing: 1px;
-            font-size: 13px;
+            font-weight: 600;
+            font-size: 12px;
+            letter-spacing: 0.5px;
+            color: var(--text-main);
+            transition: background 0.2s;
         }
 
         .requests-header:hover {
-            background: rgba(10, 50, 10, 0.95);
-            color: #fff;
+            background: rgba(30, 41, 59, 0.95);
         }
 
         .requests-title-text {
@@ -362,14 +431,14 @@
         }
 
         .requests-arrow {
-            font-size: 14px;
-            color: var(--crt-green);
-            transition: transform 0.25s ease;
+            font-size: 12px;
+            color: var(--neon-cyan);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             user-select: none;
             display: inline-block;
         }
 
-        /* Flecha rota al colapsar panel */
+        /* Arrow rotation on collapse */
         .hud-requests.collapsed .requests-arrow {
             transform: rotate(-90deg);
         }
@@ -382,15 +451,15 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            padding: 8px 10px;
+            padding: 10px 12px;
         }
 
         .requests-list {
             overflow-y: auto;
-            max-height: calc(100vh - 400px);
+            max-height: calc(100vh - 420px);
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 10px;
             padding-right: 4px;
         }
 
@@ -398,83 +467,92 @@
             width: 4px;
         }
         .requests-list::-webkit-scrollbar-thumb {
-            background: var(--crt-green);
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: var(--radius-full);
         }
 
+        /* Modern Request Card */
         .request-card {
-            background: rgba(0, 20, 0, 0.75);
-            border: 1px solid var(--crt-green-dim);
-            padding: 8px 10px;
-            box-shadow: 0 0 6px rgba(0, 40, 0, 0.6);
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: var(--radius-md);
+            padding: 10px 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
             display: flex;
             flex-direction: column;
-            gap: 4px;
-            transition: border-color 0.2s;
+            gap: 6px;
+            transition: border-color 0.2s, background 0.2s, transform 0.2s;
         }
 
         .request-card:hover {
-            border-color: var(--crt-green);
+            border-color: rgba(255, 255, 255, 0.18);
+            background: rgba(255, 255, 255, 0.05);
         }
 
         .request-card.pending {
-            border-left: 3px solid var(--crt-gold);
+            border-left: 3px solid var(--neon-amber);
         }
 
         .request-card.failed {
-            border-left: 3px solid var(--crt-red);
+            border-left: 3px solid var(--neon-rose);
         }
 
         .request-card.resolved {
-            border-left: 3px solid var(--crt-green);
+            border-left: 3px solid var(--neon-emerald);
             opacity: 0.75;
         }
 
         .card-header-row {
             display: flex;
             justify-content: space-between;
+            align-items: center;
             font-size: 12px;
-            font-weight: bold;
+            font-weight: 600;
         }
 
         .card-action-title {
-            color: var(--crt-cyan);
+            color: var(--text-main);
+            font-weight: 600;
             font-size: 13px;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.3px;
         }
 
         .card-meta {
+            font-family: var(--font-mono);
             font-size: 11px;
-            color: rgba(51, 255, 51, 0.7);
+            color: var(--text-muted);
         }
 
+        /* Pill status badge */
         .card-status-badge {
-            display: inline-block;
-            font-size: 11px;
-            padding: 2px 6px;
-            border-radius: 2px;
-            font-weight: bold;
-            margin: 2px 0;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 10px;
+            padding: 3px 8px;
+            border-radius: var(--radius-full);
+            font-weight: 600;
+            letter-spacing: 0.4px;
             text-transform: uppercase;
+            width: fit-content;
         }
 
         .badge-pending {
-            background: rgba(255, 221, 51, 0.15);
-            border: 1px solid var(--crt-gold);
-            color: var(--crt-gold);
-            text-shadow: 0 0 4px var(--crt-gold);
+            background: rgba(251, 191, 36, 0.12);
+            border: 1px solid rgba(251, 191, 36, 0.35);
+            color: var(--neon-amber);
         }
 
         .badge-failed {
-            background: rgba(255, 51, 51, 0.15);
-            border: 1px solid var(--crt-red);
-            color: var(--crt-red);
-            text-shadow: 0 0 4px var(--crt-red);
+            background: rgba(244, 63, 94, 0.12);
+            border: 1px solid rgba(244, 63, 94, 0.35);
+            color: var(--neon-rose);
         }
 
         .badge-resolved {
-            background: rgba(51, 255, 51, 0.15);
-            border: 1px solid var(--crt-green);
-            color: var(--crt-green);
+            background: rgba(16, 185, 129, 0.12);
+            border: 1px solid rgba(16, 185, 129, 0.35);
+            color: var(--neon-emerald);
         }
 
         .card-actions {
@@ -486,83 +564,138 @@
         .card-actions button {
             flex: 1;
             margin-top: 0;
-            padding: 4px 6px;
+            padding: 6px 10px;
             font-size: 11px;
+            border-radius: var(--radius-sm);
         }
 
         .btn-accept {
-            border-color: var(--crt-green);
-            color: var(--crt-green);
+            background: rgba(16, 185, 129, 0.1);
+            border-color: rgba(16, 185, 129, 0.35);
+            color: #34d399;
         }
 
         .btn-accept:hover:not(:disabled) {
-            background: var(--crt-green);
-            color: #000;
+            background: var(--neon-emerald);
+            color: #ffffff;
+            box-shadow: 0 0 16px var(--neon-emerald-glow);
         }
 
         .btn-reject {
-            border-color: var(--crt-red);
-            color: var(--crt-red);
+            background: rgba(244, 63, 94, 0.1);
+            border-color: rgba(244, 63, 94, 0.35);
+            color: #f87171;
         }
 
         .btn-reject:hover:not(:disabled) {
-            background: var(--crt-red);
-            color: #000;
-            box-shadow: 0 0 12px var(--crt-red);
-        }
-
-        .tactical-btn:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-            border-color: #666;
-            color: #888;
+            background: var(--neon-rose);
+            color: #ffffff;
+            box-shadow: 0 0 16px var(--neon-rose-glow);
         }
 
         .requests-backup-notice {
-            background: rgba(255, 51, 51, 0.15);
-            border: 1px dashed var(--crt-red);
-            color: var(--crt-red);
+            background: rgba(244, 63, 94, 0.12);
+            border: 1px dashed rgba(244, 63, 94, 0.4);
+            border-radius: var(--radius-sm);
+            color: var(--neon-rose);
             font-size: 11px;
-            padding: 6px;
+            padding: 8px;
             text-align: center;
-            margin-bottom: 6px;
-            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        /* Cartel Central Caída */
+        #central-caida-overlay {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 2000;
+            text-align: center;
+            border: 1px solid var(--neon-rose);
+            box-shadow: 0 0 40px var(--neon-rose-glow);
+            color: #ffffff;
+            padding: 24px 40px;
+            min-width: 320px;
+            border-radius: var(--radius-xl);
+            background: rgba(15, 23, 42, 0.94);
+        }
+
+        #central-caida-overlay .titulo {
+            font-size: 17px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: var(--neon-rose);
+            animation: pulse-ring 2s infinite;
+        }
+
+        #central-caida-overlay .detalle {
+            margin-top: 10px;
+            font-size: 13px;
+            color: var(--text-secondary);
         }
     </style>
 </head>
 <body>
 
-<div class="crt-container">
+<div class="cyber-container">
     <!-- Top Left Telemetry HUD -->
     <div class="hud-panel hud-top-left">
-        <div style="font-size: 16px; font-weight: bold; letter-spacing: 1px; color: #fff; text-shadow: 0 0 8px var(--crt-green);">
-            FLOTA NAVAL - COMANDO TACTICO
+        <div class="hud-title-row">
+            <span class="status-dot"></span>
+            <span class="hud-title">FLOTA NAVAL • COMANDO CENTRAL</span>
         </div>
-        <div>RED: DISTRIBUIDA (ANILLO P2P)</div>
-        <div>SYS CLOCK: <span id="clock" style="color: #fff;">00:00:00 UTC</span></div>
-        <div>DATE: <span id="date">01 JAN 2026</span></div>
-        <div>CENTRAL OPERATIVA: <span style="color: #33ff33;">ONLINE [127.0.0.1:8080]</span></div>
-        <div style="margin-top: 4px; border-top: 1px dashed var(--crt-green-dim); padding-top: 4px;">
-            CURSOR: <span id="cursor-pos" style="color: var(--crt-cyan);">LAT --.--° | LON --.--°</span>
+        <div class="hud-kv">
+            <span>SYS CLOCK</span>
+            <span class="val" id="clock">00:00:00 UTC</span>
         </div>
-        <button class="tactical-btn" onclick="centrarFlota()">[ CENTRAR EN FLOTA ]</button>
+        <div class="hud-kv">
+            <span>FECHA</span>
+            <span class="val" id="date">01 JAN 2026</span>
+        </div>
+        <div class="hud-kv">
+            <span>CENTRAL</span>
+            <span class="val" style="color: var(--neon-emerald);">ONLINE (C-1)</span>
+        </div>
+        <div class="hud-kv" style="border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 4px; margin-top: 6px;">
+            <span>CURSOR</span>
+            <span class="val" id="cursor-pos" style="color: var(--neon-cyan);">LAT --.--° • LON --.--°</span>
+        </div>
+        <button class="tactical-btn" style="width: 100%;" onclick="centrarFlota()">⌖ CENTRAR EN FLOTA</button>
     </div>
 
     <!-- Top Right Fleet Status HUD -->
     <div class="hud-panel hud-top-right">
-        <div>ESTADO DE FUERZAS NAVALES</div>
-        <div>UNIDADES ACTIVAS: <span id="active-count" style="color: #fff; font-weight: bold;">0</span></div>
-        <div>COORDINADOR/PRIMARIO: <span id="primary-id" style="color: var(--crt-gold); font-weight: bold;">BUSCANDO...</span></div>
-        <div>PETICIONES FLOTA: <span id="requests-badge" style="color: var(--crt-gold); font-weight: bold;">0 PENDIENTES</span></div>
-        <div>MODO ELECCION: <span style="color: var(--crt-cyan);">CHANG & ROBERTS (RING)</span></div>
-        <div>CONSISTENCIA: <span style="color: var(--crt-green);">RELOJES DE LAMPORT</span></div>
+        <div class="hud-title" style="margin-bottom: 6px;">FUERZAS NAVALES ACTIVAS</div>
+        <div class="hud-kv">
+            <span>UNIDADES ACTIVAS</span>
+            <span class="val" id="active-count" style="color: #ffffff;">0</span>
+        </div>
+        <div class="hud-kv">
+            <span>PRIMARIO / LÍDER</span>
+            <span class="val" id="primary-id" style="color: var(--neon-cyan);">BUSCANDO...</span>
+        </div>
+        <div class="hud-kv">
+            <span>PETICIONES FLOTA</span>
+            <span class="val" id="requests-badge" style="color: var(--neon-amber);">0 PENDIENTES</span>
+        </div>
+        <div class="hud-kv">
+            <span>ALGORITMO ELECCIÓN</span>
+            <span class="val" style="color: var(--neon-blue);">CHANG & ROBERTS</span>
+        </div>
+        <div class="hud-kv">
+            <span>CONSISTENCIA</span>
+            <span class="val" style="color: var(--neon-emerald);">RELOJES LAMPORT</span>
+        </div>
     </div>
 
     <!-- Tactical Requests HUD Panel (Fase 2) -->
     <div class="hud-panel hud-requests" id="hud-requests">
         <div class="requests-header" onclick="toggleRequestsPanel()">
             <span class="requests-title-text">
-                ❖ PETICIONES TÁCTICAS <span id="requests-header-count" style="color: var(--crt-gold);">(0)</span>
+                ❖ PETICIONES TÁCTICAS <span id="requests-header-count" style="color: var(--neon-amber); font-weight: 700;">(0)</span>
             </span>
             <span id="requests-arrow" class="requests-arrow">▼</span>
         </div>
@@ -571,7 +704,7 @@
                 ⚠ MODO RESPALDO (SOLO LECTURA)
             </div>
             <div class="requests-list" id="requests-list">
-                <div style="font-size: 11px; color: rgba(51, 255, 51, 0.5); text-align: center; padding: 12px 0;">
+                <div style="font-size: 11px; color: var(--text-muted); text-align: center; padding: 14px 0;">
                     [ SIN PETICIONES PENDIENTES ]
                 </div>
             </div>
@@ -581,11 +714,11 @@
     <!-- Bottom Events Console HUD -->
     <div class="hud-panel hud-bottom">
         <div class="events-title">
-            <span>REGISTRO DE TELEMETRIA Y EVENTOS DE LAMPORT (P2P + CENTRAL)</span>
-            <span id="events-count">0 EVENTOS</span>
+            <span>REGISTRO DE TELEMETRÍA Y EVENTOS DE LAMPORT</span>
+            <span id="events-count" style="font-family: var(--font-mono); color: var(--neon-cyan);">0 EVENTOS</span>
         </div>
         <div class="events-list" id="events-list">
-            <div class="event-item"><div>[SISTEMA]</div><div>Esperando telemetría de la flota...</div></div>
+            <div class="event-item"><div>[SISTEMA]</div><div>Iniciando telemetría de la red naval...</div></div>
         </div>
     </div>
 
@@ -593,9 +726,9 @@
     <div id="map"></div>
 
     <!-- Cartel de Central Caída / Redirección automática -->
-    <div id="central-caida-overlay" class="hud-panel">
-        <div class="titulo">⚠ CENTRAL CAÍDA</div>
-        <div class="detalle" id="central-caida-msg">Buscando nueva Central activa...</div>
+    <div id="central-caida-overlay">
+        <div class="titulo">⚠ CENTRAL PRINCIPAL DESCONECTADA</div>
+        <div class="detalle" id="central-caida-msg">Localizando nueva Central activa en el clúster...</div>
     </div>
 </div>
 
@@ -614,7 +747,6 @@
     updateClock();
 
     // --- 2. Inicialización del Mapa Táctico (Leaflet) ---
-    // Centrado inicial en el Atlántico Sur / Sudamérica donde operan los barcos
     const map = L.map('map', {
         center: [-25.0, -40.0],
         zoom: 4,
@@ -624,20 +756,58 @@
         attributionControl: false
     });
 
-    // Capa base mundial oscura sin marca de agua (Esri World Dark Gray Base)
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-        maxZoom: 16
+    // 1. Capa base satelital nocturna con luces reales de ciudades (NASA Earth at Night / VIIRS CityLights)
+    L.tileLayer('https://gibs-{s}.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_CityLights_2012/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpg', {
+        subdomains: 'abc',
+        minZoom: 1,
+        maxZoom: 18,
+        maxNativeZoom: 8,
+        attribution: ''
     }).addTo(map);
 
-    // Capa de referencias (fronteras, costas y nombres sin marcas de agua)
+    // 2. Capa de límites tácticos, fronteras y costas iluminadas (Esri Dark Gray Reference)
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
-        maxZoom: 16
+        minZoom: 1,
+        maxZoom: 18,
+        opacity: 0.9,
+        attribution: ''
     }).addTo(map);
 
     // Zoom control en la esquina derecha inferior
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-    // --- 3. Capa de Graticule (Líneas de Coordenadas Latitud / Longitud en el mundo) ---
+    // 3. Delimitación vectorial de alta definición para continentes y países (estilo C4ISR táctico)
+    const bordersSources = [
+        'https://d2ad6b4ur7yvpq.cloudfront.net/naturalearth-3.3.0/ne_110m_admin_0_countries.geojson',
+        'https://raw.githubusercontent.com/datasets/geo-boundaries-world-110m/master/countries.geojson'
+    ];
+
+    async function loadCountryBorders() {
+        for (const url of bordersSources) {
+            try {
+                const res = await fetch(url);
+                if (!res.ok) continue;
+                const data = await res.json();
+                L.geoJSON(data, {
+                    className: 'country-border-path',
+                    style: {
+                        color: 'rgba(255, 255, 255, 0.42)',
+                        weight: 0.85,
+                        opacity: 0.85,
+                        fillColor: 'rgba(255, 255, 255, 0.035)',
+                        fillOpacity: 1
+                    },
+                    interactive: false
+                }).addTo(map);
+                break;
+            } catch (e) {
+                console.warn('Intento fallido cargando fronteras desde:', url, e);
+            }
+        }
+    }
+    loadCountryBorders();
+
+    // --- 3. Capa de Graticule (Líneas de Coordenadas Latitud / Longitud) ---
     const graticuleLayer = L.layerGroup().addTo(map);
 
     function drawGraticule() {
@@ -650,12 +820,9 @@
             
             L.polyline(pts, {
                 className: 'graticule-line',
-                color: 'rgba(51, 255, 51, 0.22)',
-                weight: 1,
                 interactive: false
             }).addTo(graticuleLayer);
 
-            // Etiqueta de longitud en el ecuador y polos
             const lonLabel = lon === 0 ? '0° (GM)' : (lon > 0 ? `${lon}°E` : `${Math.abs(lon)}°W`);
             L.marker([0, lon], {
                 icon: L.divIcon({
@@ -675,12 +842,9 @@
             
             L.polyline(pts, {
                 className: 'graticule-line',
-                color: 'rgba(51, 255, 51, 0.22)',
-                weight: 1,
                 interactive: false
             }).addTo(graticuleLayer);
 
-            // Etiqueta de latitud en el meridiano 0
             const latLabel = lat === 0 ? 'ECUADOR (0°)' : (lat > 0 ? `${lat}°N` : `${Math.abs(lat)}°S`);
             L.marker([lat, 0], {
                 icon: L.divIcon({
@@ -695,9 +859,8 @@
     }
     drawGraticule();
 
-    // --- Etiquetas propias de lugares (superpuestas sobre el mapa base) ---
+    // Etiquetas propias de lugares
     const placeLabels = L.layerGroup().addTo(map);
-
     function drawPlaceLabels() {
         L.marker([-51.75, -59.5], {
             icon: L.divIcon({
@@ -711,13 +874,13 @@
     }
     drawPlaceLabels();
 
-    // Actualización de coordenadas del cursor en tiempo real
+    // Actualización de coordenadas del cursor
     map.on('mousemove', function(e) {
         const lat = e.latlng.lat;
         const lon = e.latlng.lng;
         const latStr = lat >= 0 ? `N ${lat.toFixed(3)}°` : `S ${Math.abs(lat).toFixed(3)}°`;
         const lonStr = lon >= 0 ? `E ${lon.toFixed(3)}°` : `W ${Math.abs(lon).toFixed(3)}°`;
-        document.getElementById('cursor-pos').innerText = `LAT ${latStr} | LON ${lonStr}`;
+        document.getElementById('cursor-pos').innerText = `LAT ${latStr} • LON ${lonStr}`;
     });
 
     // --- 4. Gestión de Barcos y Marcadores ---
@@ -737,32 +900,30 @@
         const isPrimary = (ship.es_primario && !isOffline);
         const heading = (ship.rumbo || 0);
 
-        const color = isPrimary ? '#ffffff' : (isOffline ? '#ff3333' : '#33ff33');
+        const color = isPrimary ? '#38bdf8' : (isOffline ? '#f43f5e' : '#ffffff');
         const ringClass = isPrimary ? 'primary' : (isOffline ? 'offline' : '');
 
-        // SVG con flecha náutica táctica de rumbo
+        // Chevron táctico vectorial
         const svgArrow = `
-            <svg class="ship-icon" style="transform: translate(-50%, -50%) rotate(${heading}deg);" width="26" height="26" viewBox="0 0 26 26">
-                <!-- Flecha de rumbo náutico -->
-                <polygon points="13,1 19,23 13,18 7,23" fill="${color}" stroke="#000" stroke-width="1.5" />
-                <!-- Núcleo de posición -->
-                <circle cx="13" cy="13" r="2.5" fill="#fff" />
+            <svg class="ship-icon" style="transform: translate(-50%, -50%) rotate(${heading}deg);" width="24" height="24" viewBox="0 0 24 24">
+                <polygon points="12,2 20,21 12,16 4,21" fill="${color}" stroke="#0b1120" stroke-width="1.8" />
+                <circle cx="12" cy="12" r="2.5" fill="#ffffff" />
             </svg>
         `;
 
         const tagClass = 'ship-tactical-tag ' + (isPrimary ? 'primary' : (isOffline ? 'offline' : ''));
         const coordText = formatCoord(ship.latitud ?? ship.lat ?? 0, ship.longitud ?? ship.lon ?? 0);
         
-        let headerText = `[NAVIO ${ship.id}] ${ship.nombre}`;
-        if (isPrimary) headerText += ' [COORDINADOR]';
-        if (isOffline) headerText += ' [HUNDIDO/OFF]';
+        let headerText = `[NAVÍO ${ship.id}] ${ship.nombre}`;
+        if (isPrimary) headerText += ' [LÍDER]';
+        if (isOffline) headerText += ' [DESCONECTADO]';
 
         const tagHtml = `
             <div class="${tagClass}">
-<span style="font-weight:bold;">${headerText}</span>
-RUMBO: ${Math.round(heading).toString().padStart(3, '0')}°  VEL: ${(ship.velocidad ?? ship.vel ?? 0).toFixed(1)} kn
+<span style="font-weight:700; color:#fff;">${headerText}</span>
+RUMBO: ${Math.round(heading).toString().padStart(3, '0')}° • VEL: ${(ship.velocidad ?? ship.vel ?? 0).toFixed(1)} kn
 POS:   ${coordText}
-RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
+LAMPORT: [L:${ship.lamport ?? 0}]
             </div>
         `;
 
@@ -788,13 +949,12 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
         const lon = primaryShip.longitud ?? primaryShip.lon;
         if (lat === undefined || lon === undefined) return;
 
-        // Anillos tácticos concéntricos de 50NM y 100NM (1 NM = 1852 m)
         [50, 100].forEach(nm => {
             L.circle([lat, lon], {
                 radius: nm * 1852,
-                color: 'rgba(51, 255, 51, 0.25)',
+                color: 'rgba(56, 189, 248, 0.22)',
                 weight: 1,
-                dashArray: '5, 8',
+                dashArray: '4, 8',
                 fill: false,
                 interactive: false
             }).addTo(rangeRings);
@@ -817,21 +977,17 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
         }
     };
 
-    // --- 5b. Detección de caída de la Central y redirección automática ---
-    // Si esta Central deja de responder, buscamos entre las Centrales conocidas
-    // (/api/centrales) cuál pasó a ser la Principal (/api/rol) y redirigimos ahí.
+    // --- 5. Redirección ante caída de Central ---
     let centralesConocidas = [];
     let fallosConsecutivos = 0;
-    const UMBRAL_FALLOS = 3; // fetchState corre cada 2s -> ~6s sin respuesta
+    const UMBRAL_FALLOS = 3;
     let buscandoNuevaCentral = false;
 
     async function cargarCentralesConocidas() {
         try {
             const res = await fetch('/api/centrales');
             if (res.ok) centralesConocidas = await res.json();
-        } catch (e) {
-            // Si esto falla de entrada no hay mucho para hacer; se reintenta más tarde igual
-        }
+        } catch (e) {}
     }
     cargarCentralesConocidas();
 
@@ -845,13 +1001,11 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
                 const info = await res.json();
                 if (info.soy_principal) {
                     document.getElementById('central-caida-msg').innerText =
-                        `Nueva Central Principal: ID ${info.id}. Redirigiendo...`;
+                        `Nueva Central Principal localizada: ID ${info.id}. Redirigiendo...`;
                     setTimeout(() => { window.location.href = base + '/'; }, 1000);
                     return true;
                 }
-            } catch (e) {
-                // Esta central tampoco responde, sigo probando con la siguiente
-            }
+            } catch (e) {}
         }
         return false;
     }
@@ -859,7 +1013,7 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
     function mostrarCentralCaida() {
         if (buscandoNuevaCentral) return;
         buscandoNuevaCentral = true;
-        document.getElementById('central-caida-msg').innerText = 'Buscando nueva Central activa...';
+        document.getElementById('central-caida-msg').innerText = 'Localizando nueva Central activa en el clúster...';
         document.getElementById('central-caida-overlay').style.display = 'block';
 
         intentarEncontrarPrincipal().then(encontrada => {
@@ -870,14 +1024,13 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
         });
     }
 
-    // --- 5. Consulta periódica a la Central ---
+    // --- 6. Consulta de Estado de Flota ---
     async function fetchState() {
         try {
             const res = await fetch('/api/estado');
             if (!res.ok) throw new Error('Respuesta no OK de /api/estado');
             const data = await res.json();
 
-            // Se recibió respuesta: esta Central sigue viva
             fallosConsecutivos = 0;
             if (buscandoNuevaCentral) {
                 buscandoNuevaCentral = false;
@@ -903,7 +1056,6 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
 
                 validCoords.push([lat, lon]);
 
-                // Actualizar o crear marcador en Leaflet
                 if (markers[id]) {
                     markers[id].setLatLng([lat, lon]);
                     markers[id].setIcon(createShipIcon(ship));
@@ -920,8 +1072,7 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
                 }
             }
 
-            // Actualizar contadores del HUD
-            document.getElementById('active-count').innerText = `${activeCount} NAVIOS`;
+            document.getElementById('active-count').innerText = `${activeCount} NAVÍOS`;
             if (primaryShip) {
                 document.getElementById('primary-id').innerText = `[${primaryShip.id}] ${primaryShip.nombre}`;
                 updateRings(primaryShip);
@@ -930,7 +1081,6 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
                 rangeRings.clearLayers();
             }
 
-            // Auto fit inicial si no se hizo aún
             if (!initialFitDone && validCoords.length > 0) {
                 initialFitDone = true;
                 centrarFlota();
@@ -945,7 +1095,7 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
         }
     }
 
-    // --- 6. Consulta de Eventos de Lamport ---
+    // --- 7. Consulta de Eventos de Lamport ---
     let lastEventsJson = "";
     async function fetchEventos() {
         try {
@@ -959,7 +1109,7 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
             const listElem = document.getElementById('events-list');
             listElem.innerHTML = '';
 
-            document.getElementById('events-count').innerText = `${eventos.length} EVENTOS REGISTRADOS`;
+            document.getElementById('events-count').innerText = `${eventos.length} EVENTOS`;
 
             eventos.slice(-20).forEach(([l_clock, timestamp, desc]) => {
                 const date = new Date(timestamp * 1000);
@@ -967,9 +1117,9 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
                 const item = document.createElement('div');
                 item.className = 'event-item' + (desc.includes('ataque') ? ' alert' : '');
                 item.innerHTML = `
-                    <span style="color: var(--crt-cyan);">[L:${l_clock}]</span>
-                    <span style="color: #888;">[${timeStr}]</span>
-                    <span>${desc}</span>
+                    <span style="color: var(--neon-cyan); font-weight:600;">[L:${l_clock}]</span>
+                    <span style="color: var(--text-muted);">[${timeStr}]</span>
+                    <span style="color: var(--text-secondary);">${desc}</span>
                 `;
                 listElem.appendChild(item);
             });
@@ -978,7 +1128,7 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
         }
     }
 
-    // --- 7. Gestión de Solicitudes Tácticas (Fase 2) ---
+    // --- 8. Gestión de Solicitudes Tácticas ---
     function toggleRequestsPanel() {
         const panel = document.getElementById('hud-requests');
         if (panel) panel.classList.toggle('collapsed');
@@ -1007,12 +1157,12 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
             const badge = document.getElementById('requests-badge');
             if (badge) {
                 badge.innerText = `${activas.length} PENDIENTES`;
-                badge.style.color = activas.length > 0 ? 'var(--crt-gold)' : 'rgba(51, 255, 51, 0.6)';
+                badge.style.color = activas.length > 0 ? 'var(--neon-amber)' : 'var(--text-muted)';
             }
             const headerCount = document.getElementById('requests-header-count');
             if (headerCount) {
                 headerCount.innerText = `(${activas.length})`;
-                headerCount.style.color = activas.length > 0 ? 'var(--crt-gold)' : 'var(--crt-green)';
+                headerCount.style.color = activas.length > 0 ? 'var(--neon-amber)' : 'var(--text-secondary)';
             }
 
             const listElem = document.getElementById('requests-list');
@@ -1020,14 +1170,13 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
 
             if (solicitudes.length === 0) {
                 listElem.innerHTML = `
-                    <div style="font-size: 11px; color: rgba(51, 255, 51, 0.5); text-align: center; padding: 12px 0;">
+                    <div style="font-size: 11px; color: var(--text-muted); text-align: center; padding: 16px 0;">
                         [ SIN PETICIONES PENDIENTES ]
                     </div>
                 `;
                 return;
             }
 
-            // Ordenar: activas primero (más recientes arriba), luego resueltas
             const sorted = [...solicitudes].sort((a, b) => {
                 const aActiva = a.estado === 'pendiente' || (a.estado && a.estado.startsWith('no_entregada_'));
                 const bActiva = b.estado === 'pendiente' || (b.estado && b.estado.startsWith('no_entregada_'));
@@ -1048,7 +1197,7 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
                 if (isPending) {
                     cardClass += 'pending';
                     badgeClass += 'badge-pending';
-                    statusText = '⏳ PENDIENTE';
+                    statusText = '● PENDIENTE';
                 } else if (isFailed) {
                     cardClass += 'failed';
                     badgeClass += 'badge-failed';
@@ -1068,10 +1217,10 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
                     actionsHtml = `
                         <div class="card-actions">
                             <button class="tactical-btn btn-accept" ${disabledAttr} onclick="resolverSolicitudWeb(${sol.id}, 'aceptada', this)">
-                                ✔ ACEPTAR
+                                ✔ Aceptar
                             </button>
                             <button class="tactical-btn btn-reject" ${disabledAttr} onclick="resolverSolicitudWeb(${sol.id}, 'rechazada', this)">
-                                ✖ RECHAZAR
+                                ✖ Rechazar
                             </button>
                         </div>
                     `;
@@ -1082,11 +1231,11 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
                 card.id = `req-card-${sol.id}`;
                 card.innerHTML = `
                     <div class="card-header-row">
-                        <span style="color: #fff;">SOLICITUD #${sol.id}</span>
-                        <span style="color: var(--crt-green);">BARCO ${sol.origen}</span>
+                        <span style="font-weight:700; color:#fff;">SOLICITUD #${sol.id}</span>
+                        <span style="color:var(--neon-cyan); font-family:var(--font-mono); font-size:11px;">BARCO ${sol.origen}</span>
                     </div>
-                    <div class="card-action-title">ACCIÓN: ${sol.accion.replace(/_/g, ' ').toUpperCase()}</div>
-                    <div class="card-meta">HORA: ${timeStr} | L:${sol.lamport || 0}</div>
+                    <div class="card-action-title">${sol.accion.replace(/_/g, ' ').toUpperCase()}</div>
+                    <div class="card-meta">HORA: ${timeStr} • L:${sol.lamport || 0}</div>
                     <div><span class="${badgeClass}">${statusText}</span></div>
                     ${actionsHtml}
                 `;
@@ -1102,7 +1251,7 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
         const card = document.getElementById(`req-card-${id}`);
         const buttons = card ? card.querySelectorAll('button') : [];
         buttons.forEach(b => { b.disabled = true; });
-        if (btnElem) btnElem.innerText = 'ENVIANDO...';
+        if (btnElem) btnElem.innerText = 'Enviando...';
 
         try {
             const res = await fetch('/api/solicitudes/resolver', {
@@ -1115,7 +1264,6 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
             if (!res.ok) {
                 alert(data.error || 'Error al resolver la solicitud.');
             }
-            // Forzar actualización inmediata
             lastSolicitudesJson = "";
             await fetchSolicitudes();
             await fetchEventos();
