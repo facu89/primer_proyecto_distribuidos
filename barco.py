@@ -160,6 +160,7 @@ class BarcoServicio:
             for p_id, p_uri in nueva_topologia:
                 self.peers_uris[p_id] = p_uri
                 if p_id not in self.estado_flota:
+                    # Nunca lo había visto: lo doy de alta como activo (recién se une al anillo)
                     self.estado_flota[p_id] = {
                         "id": p_id,
                         "latitud": 0.0,
@@ -170,10 +171,16 @@ class BarcoServicio:
                         "es_primario": (p_id == self.primario_id),
                         "lamport": reloj_logico
                     }
-                else:
+                    self.ultimos_contactos[p_id] = time.time()
+                elif p_id == reincorporado_id:
+                    # Es el barco que Central avisa que se reincorporó de verdad
                     self.estado_flota[p_id]["activo"] = True
-                self.ultimos_contactos[p_id] = time.time()
-                
+                    self.ultimos_contactos[p_id] = time.time()
+                # A los demás barcos ya conocidos no les toco su estado de actividad acá:
+                # que lo decida únicamente el heartbeat real de cada uno, no el solo hecho
+                # de aparecer en esta lista de topología (si no, "resucita" a barcos muertos
+                # cada vez que otro distinto se reincorpora).
+
         logging.info(f"Topología del anillo actualizada: Barco {reincorporado_id} se reincorporó. Nodos: {len(nueva_topologia)}")
         if self.es_primario:
             self._replicar_estado(reloj_logico)
