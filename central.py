@@ -29,6 +29,7 @@ flota_formada = False
 estado_flota = {}
 eventos_lamport = []
 solicitudes_recibidas = []
+historial_comunicacion = []  # [{barco_id, lamport, timestamp, direccion, mensaje}, ...] en orden de llegada
 NS_HOST = "127.0.0.1"
 NS_PORT = 9090
 
@@ -126,6 +127,22 @@ class CentralServicio:
         })
         logging.info(f"[L:{lamport}] Recibida solicitud '{accion}' del barco {barco_origen}")
         eventos_lamport.append((lamport, time.time(), f"Solicitud '{accion}' recibida del Barco {barco_origen}"))
+
+        historial_comunicacion.append({
+            "barco_id": barco_origen,
+            "lamport": lamport,
+            "timestamp": time.time(),
+            "direccion": "barco->central",
+            "mensaje": f"Solicitud '{accion}' ({datos})"
+        })
+        historial_comunicacion.append({
+            "barco_id": barco_origen,
+            "lamport": lamport,
+            "timestamp": time.time(),
+            "direccion": "central->barco",
+            "mensaje": "ACK recibido"
+        })
+
         return {"recibido": True}
 
     def notificar_nuevo_primario(self, primario_id):
@@ -172,6 +189,7 @@ class CentralServicio:
                 "estado_flota": dict(estado_flota),
                 "eventos_lamport": list(eventos_lamport),
                 "solicitudes_recibidas": list(solicitudes_recibidas),
+                "historial_comunicacion": list(historial_comunicacion),
             }
 
     def replicar_estado_central(self, payload, lamport, origen_id):
@@ -200,6 +218,7 @@ class CentralServicio:
             estado_flota.update(payload["estado_flota"])
             eventos_lamport[:] = payload["eventos_lamport"]
             solicitudes_recibidas[:] = payload["solicitudes_recibidas"]
+            historial_comunicacion[:] = payload["historial_comunicacion"]
             ultimo_latido_principal = time.time()
         return True
 
@@ -356,6 +375,7 @@ def _replicar_a_backups():
             "estado_flota": dict(estado_flota),
             "eventos_lamport": list(eventos_lamport),
             "solicitudes_recibidas": list(solicitudes_recibidas),
+            "historial_comunicacion": list(historial_comunicacion),
         }
 
     for cid, curi in topologia_centrales:
@@ -582,7 +602,7 @@ def cmd_loop(ns_host, ns_port):
     time.sleep(2)
     while True:
         try:
-            print("\nComandos: formar flota, estado, solicitar ubicaciones, ver ubicaciones, log, rol, q")
+            print("\nComandos: formar flota, estado, solicitar ubicaciones, ver ubicaciones, log, rol, historial, q")
             cmd = input("> ").strip().lower()
             if not cmd: continue
 
@@ -605,6 +625,15 @@ def cmd_loop(ns_host, ns_port):
                     print(f"L:{l} | {desc}")
             elif cmd == "rol":
                 print(f"Central ID {CENTRAL_ID} -> {'PRINCIPAL' if soy_principal else 'RESPALDO'}")
+            elif cmd == "historial":
+                if not historial_comunicacion:
+                    print("No hay historial de comunicación todavía.")
+                else:
+                    print("\nHistorial de comunicación con la flota:")
+                    for e in historial_comunicacion:
+                        hora = time.strftime("%H:%M:%S", time.localtime(e["timestamp"]))
+                        etiqueta = "principal" if e["direccion"] == "barco->central" else "central"
+                        print(f"  {hora} {etiqueta} (barco {e['barco_id']}): {e['mensaje']}")
             elif cmd == "q":
                 break
             else:
@@ -689,6 +718,7 @@ def main():
             estado_flota.update(estado["estado_flota"])
             eventos_lamport.extend(estado["eventos_lamport"])
             solicitudes_recibidas.extend(estado["solicitudes_recibidas"])
+            historial_comunicacion.extend(estado["historial_comunicacion"])
             soy_principal = False
             ultimo_latido_principal = time.time()
             principal_encontrada = True
