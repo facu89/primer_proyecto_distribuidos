@@ -528,6 +528,30 @@
             margin-bottom: 6px;
             letter-spacing: 0.5px;
         }
+
+        /* --- Efecto de transmisión de datos (línea punteada que viaja) --- */
+        @keyframes flujo-datos {
+            to { stroke-dashoffset: -20; }
+        }
+        .linea-transmision {
+            animation: flujo-datos 1s linear infinite;
+        }
+
+        /* --- Efecto de Explosión --- */
+        .explosion-grafica {
+            width: 40px; 
+            height: 40px;
+            background: radial-gradient(circle, #ffaa00 20%, #ff3333 60%, transparent 80%);
+            border-radius: 50%;
+            animation: explode-anim 1.2s ease-out forwards;
+            box-shadow: 0 0 25px #ff3333;
+        }
+        @keyframes explode-anim {
+            0% { transform: scale(0.1); opacity: 1; }
+            50% { transform: scale(2.5); opacity: 0.8; }
+            100% { transform: scale(4); opacity: 0; }
+        }
+
     </style>
 </head>
 <body>
@@ -710,6 +734,38 @@
         }).addTo(placeLabels);
     }
     drawPlaceLabels();
+
+    // --- NUEVO: Base Central y Tracking de Animaciones ---
+    // Ubicamos la Central ficticiamente en la costa para las animaciones
+    const BASE_CENTRAL_COORD = [-38.88, -62.10]; 
+    L.marker(BASE_CENTRAL_COORD, {
+        icon: L.divIcon({
+            className: 'place-label',
+            html: `<span style="color: var(--crt-cyan);">⌂ CENTRAL OPERATIVA</span>`,
+            iconSize: [200, 20],
+            iconAnchor: [100, 10]
+        }),
+        interactive: false
+    }).addTo(placeLabels);
+
+    const lineasConexionActivas = {}; // Para guardar las líneas de red
+    const explosionesRealizadas = new Set(); // Para no repetir explosiones
+    const estadosPreviosSolicitudes = {}; // NUEVO: Para saber qué cambió
+    let esPrimeraCargaSolicitudes = true; // NUEVO: Para no repetir animaciones viejas
+
+    function dispararExplosion(lat, lon) {
+        const explosion = L.marker([lat, lon], {
+            icon: L.divIcon({
+                className: 'custom-explosion',
+                html: '<div class="explosion-grafica"></div>',
+                iconSize: [40, 40],
+                iconAnchor: [20, 20]
+            }),
+            interactive: false
+        }).addTo(map);
+        // Borrar del mapa luego de que termine la animación
+        setTimeout(() => map.removeLayer(explosion), 1200);
+    }
 
     // Actualización de coordenadas del cursor en tiempo real
     map.on('mousemove', function(e) {
@@ -1040,6 +1096,50 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
             sorted.forEach(sol => {
                 const isPending = sol.estado === 'pendiente';
                 const isFailed = sol.estado && sol.estado.startsWith('no_entregada_');
+                
+                // --- NUEVO: Lógica Visual (Líneas y Explosiones) ---
+                const barcoData = currentShipsData[sol.origen];
+                if (barcoData && barcoData.latitud !== undefined) {
+                    const posBarco = [barcoData.latitud, barcoData.longitud];
+                    
+                    // Manejo del rayo de conexión
+                    if (sol.estado === 'pendiente') {
+                        if (!lineasConexionActivas[sol.id]) {
+                            // Dibuja línea amarilla punteada moviéndose
+                            lineasConexionActivas[sol.id] = L.polyline([posBarco, BASE_CENTRAL_COORD], {
+                                color: 'var(--crt-gold)', dashArray: '5, 10', weight: 2, className: 'linea-transmision'
+                            }).addTo(map);
+                        } else {
+                            // Actualiza posición si el barco se mueve
+                            lineasConexionActivas[sol.id].setLatLngs([posBarco, BASE_CENTRAL_COORD]);
+                        }
+                    } else if (sol.estado && sol.estado.startsWith('no_entregada_')) {
+                        // Si falla, se pone roja y desaparece a los 3 segundos
+                        if (lineasConexionActivas[sol.id]) {
+                            lineasConexionActivas[sol.id].setStyle({ color: 'var(--crt-red)' });
+                            setTimeout(() => { 
+                                if(lineasConexionActivas[sol.id]) { map.removeLayer(lineasConexionActivas[sol.id]); delete lineasConexionActivas[sol.id]; }
+                            }, 3000);
+                        }
+                    } else {
+                        // Si se resuelve bien, parpadea verde y desaparece rápido
+                        if (lineasConexionActivas[sol.id]) {
+                            lineasConexionActivas[sol.id].setStyle({ color: 'var(--crt-green)' });
+                            setTimeout(() => { 
+                                if(lineasConexionActivas[sol.id]) { map.removeLayer(lineasConexionActivas[sol.id]); delete lineasConexionActivas[sol.id]; }
+                            }, 1000);
+                        }
+                    }
+                }
+
+                // Manejo de la explosión
+                if (sol.estado === 'aceptada' && sol.accion === 'ataque_aereo' && !explosionesRealizadas.has(sol.id)) {
+                    explosionesRealizadas.add(sol.id);
+                    if (sol.datos && sol.datos.coordenadas) {
+                        dispararExplosion(sol.datos.coordenadas[0], sol.datos.coordenadas[1]);
+                    }
+                }
+                // --- FIN NUEVO ---
 
                 let cardClass = 'request-card ';
                 let badgeClass = 'card-status-badge ';
