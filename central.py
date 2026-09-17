@@ -305,6 +305,36 @@ def _mandar_al_siguiente_central(metodo, *args):
             continue
     return None
 
+def _verificar_resolucion_eleccion():
+    """Red de seguridad: si mandamos el mensaje de elección a otra Central pero
+    nunca volvió el 'COORDINADOR' (mensaje perdido, arranque simultáneo de varias
+    Centrales, etc.), confirmamos directo con los peers conocidos y nos
+    autoproclamamos si de verdad ninguno quedó como Principal, en vez de
+    quedarnos esperando una confirmación que puede no llegar nunca."""
+    global en_eleccion_central
+    time.sleep(2.5)
+    if soy_principal:
+        return
+    _refrescar_topologia_centrales()
+    for cid, curi in topologia_centrales:
+        if cid == CENTRAL_ID:
+            continue
+        try:
+            peer = Pyro5.api.Proxy(curi)
+            peer._pyroTimeout = 1.5
+            if peer.obtener_rol().get("soy_principal"):
+                with lock_central:
+                    en_eleccion_central = False
+                return
+        except Exception:
+            continue
+    with lock_central:
+        en_eleccion_central = False
+    logging.warning(f"[CENTRAL {CENTRAL_ID}] La elección no se resolvió a tiempo (ningún peer "
+                     f"respondió como Principal). Autoproclamándome para no quedar sin Principal.")
+    _proclamar_central(CENTRAL_ID)
+    _asumir_como_principal()
+
 def _iniciar_eleccion_central(motivo):
     global en_eleccion_central
     with lock_central:
@@ -321,6 +351,8 @@ def _iniciar_eleccion_central(motivo):
         # No hay otras centrales en el anillo: me proclamo principal directamente.
         _proclamar_central(CENTRAL_ID)
         _asumir_como_principal()
+    else:
+        threading.Thread(target=_verificar_resolucion_eleccion, daemon=True).start()
 
 def _proclamar_central(ganador):
     global soy_principal, en_eleccion_central

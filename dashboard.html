@@ -828,21 +828,31 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
     async function cargarCentralesConocidas() {
         try {
             const res = await fetch('/api/centrales');
-            if (res.ok) centralesConocidas = await res.json();
+            if (res.ok) {
+                centralesConocidas = await res.json();
+                console.log('[REDIRECT] Centrales conocidas cargadas:', centralesConocidas);
+            } else {
+                console.warn('[REDIRECT] /api/centrales respondió no-OK:', res.status);
+            }
         } catch (e) {
-            // Si esto falla de entrada no hay mucho para hacer; se reintenta más tarde igual
+            console.warn('[REDIRECT] No se pudo cargar /api/centrales al iniciar:', e);
         }
     }
     cargarCentralesConocidas();
 
     async function intentarEncontrarPrincipal() {
+        console.log('[REDIRECT] Buscando nueva principal entre:', centralesConocidas);
         for (const c of centralesConocidas) {
             if (c.host === undefined || c.http_port === undefined) continue;
             const base = `http://${c.host}:${c.http_port}`;
             try {
                 const res = await fetch(`${base}/api/rol`, { cache: 'no-store' });
-                if (!res.ok) continue;
+                if (!res.ok) {
+                    console.warn(`[REDIRECT] ${base}/api/rol respondió no-OK:`, res.status);
+                    continue;
+                }
                 const info = await res.json();
+                console.log(`[REDIRECT] ${base}/api/rol ->`, info);
                 if (info.soy_principal) {
                     document.getElementById('central-caida-msg').innerText =
                         `Nueva Central Principal: ID ${info.id}. Redirigiendo...`;
@@ -850,7 +860,7 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
                     return true;
                 }
             } catch (e) {
-                // Esta central tampoco responde, sigo probando con la siguiente
+                console.warn(`[REDIRECT] No se pudo contactar a ${base}/api/rol:`, e);
             }
         }
         return false;

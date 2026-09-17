@@ -7,12 +7,12 @@ REM               todo termina escuchando en 127.0.0.1, invisible para las demas
 REM  NS_HOST    = IP de la maquina donde corre nameserver.py (maquina_nameserver.bat).
 REM  CENTRAL2_HTTP = IP:puerto del dashboard de la Central 2, para que el
 REM  navegador pueda redirigir solo ahi si esta Central se cae.
-set MI_HOST=192.168.1.53
-set NS_HOST=192.168.1.53
+set MI_HOST=192.168.88.206
+set NS_HOST=192.168.88.206
 set NS_PORT=9090
-set CENTRAL2_HTTP=192.168.1.53:5000
+set CENTRAL2_HTTP=192.168.88.206:5000
 REM ============================================================
 
 title CENTRAL 1
-python central.py 1 --host %MI_HOST% --port 8080 --ns-host %NS_HOST% --ns-port %NS_PORT% --http-port 5000 --peers-http 2:%CENTRAL2_HTTP%
+python3 central.py 1 --host %MI_HOST% --port 8080 --ns-host %NS_HOST% --ns-port %NS_PORT% --http-port 5000 --peers-http 2:%CENTRAL2_HTTP%
 
