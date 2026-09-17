@@ -607,16 +607,16 @@ def ver_ubicaciones():
     _imprimir_tabla_ubicaciones(ultimas_ubicaciones)
 
 def ver_solicitudes_pendientes():
-    """Muestra la tabla de solicitudes pendientes de resolución."""
+    """Muestra la tabla de solicitudes pendientes de resolución o con entrega fallida."""
     with lock_central:
-        pendientes = [s for s in solicitudes_recibidas.values() if s.get("estado") == "pendiente"]
+        pendientes = [s for s in solicitudes_recibidas.values() if s.get("estado") == "pendiente" or str(s.get("estado", "")).startswith("no_entregada_")]
     if not pendientes:
-        print("No hay solicitudes pendientes.")
+        print("No hay solicitudes pendientes ni fallidas.")
         return
-    print(f"\n{'ID':<5}{'ORIGEN':<10}{'ACCIÓN':<25}{'ESTADO':<12}{'HORA'}")
+    print(f"\n{'ID':<5}{'ORIGEN':<10}{'ACCIÓN':<25}{'ESTADO':<25}{'HORA'}")
     for s in sorted(pendientes, key=lambda x: x.get("id", 0)):
         hora = time.strftime("%H:%M:%S", time.localtime(s.get("timestamp", time.time())))
-        print(f"{s.get('id', '?'):<5}Barco {s.get('origen', '?'):<4} {s.get('accion', ''):<25}{s.get('estado', ''):<12}{hora}")
+        print(f"{s.get('id', '?'):<5}Barco {s.get('origen', '?'):<4} {s.get('accion', ''):<25}{s.get('estado', ''):<25}{hora}")
 
 def _resolver_solicitud(solicitud_id, decision):
     """Resuelve una solicitud ('aceptada' o 'rechazada'), registra en historial y notifica al Primario."""
@@ -632,8 +632,9 @@ def _resolver_solicitud(solicitud_id, decision):
             return False
         
         sol = solicitudes_recibidas[sol_id_key]
-        if sol.get("estado") != "pendiente":
-            print(f"Error: La solicitud #{solicitud_id} ya fue resuelta ({sol.get('estado')}).")
+        estado_actual = sol.get("estado", "")
+        if estado_actual != "pendiente" and not estado_actual.startswith("no_entregada_"):
+            print(f"Error: La solicitud #{solicitud_id} ya fue resuelta ({estado_actual}).")
             return False
 
         sol["estado"] = decision
@@ -665,12 +666,39 @@ def _resolver_solicitud(solicitud_id, decision):
         primario_uri = ns.lookup("flota.primario")
         primario = Pyro5.api.Proxy(primario_uri)
         primario._pyroTimeout = 3.0
-        primario.recibir_resolucion_solicitud(sol_real_id, accion, barco_origen, decision)
-        print(f"Resolución enviada con éxito al Primario para Barco {barco_origen}: [{decision.upper()}] {accion}")
-        return True
+        resultado = primario.recibir_resolucion_solicitud(sol_real_id, accion, barco_origen, decision)
+
+        entregado = resultado.get("entregado", False) if isinstance(resultado, dict) else (resultado is True)
+        if entregado:
+            print(f"Resolución entregada con éxito al Barco {barco_origen}: [{decision.upper()}] {accion}")
+            return True
+        else:
+            motivo = resultado.get("motivo", "nodo no disponible") if isinstance(resultado, dict) else "error de entrega"
+            with lock_central:
+                sol["estado"] = f"no_entregada_{decision}"
+                reloj_logico_central += 1
+                l_actual = reloj_logico_central
+                msg_fallo = f"Entrega fallida al Barco {barco_origen} para Solicitud #{sol_real_id} '{accion}' ({decision.upper()}): {motivo}"
+                logging.warning(f"[L:{l_actual}] {msg_fallo}")
+                eventos_lamport.append((l_actual, time.time(), msg_fallo))
+                historial_comunicacion.append({
+                    "solicitud_id": sol_real_id,
+                    "barco_id": barco_origen,
+                    "lamport": l_actual,
+                    "timestamp": time.time(),
+                    "direccion": "central<-barco",
+                    "mensaje": f"AVISO: Resolución de Solicitud #{sol_real_id} no pudo ser entregada a Barco {barco_origen} ({motivo})"
+                })
+            _replicar_a_backups()
+            print(f"[AVISO] Resolución #{sol_real_id} ({decision}) no pudo ser entregada a Barco {barco_origen} ({motivo}). Estado: no_entregada_{decision}.")
+            return False
     except Exception as e:
         logging.error(f"Error notificando resolución al Primario: {e}")
+        with lock_central:
+            sol["estado"] = f"no_entregada_{decision}"
+        _replicar_a_backups()
         print(f"Advertencia: No se pudo contactar al Primario para notificar resolución: {e}")
+        print(f"La solicitud #{sol_real_id} quedó registrada como 'no_entregada_{decision}'. Puede reintentar con 'aceptar {sol_real_id}' o 'rechazar {sol_real_id}'.")
         return False
 
 def cmd_loop(ns_host, ns_port):

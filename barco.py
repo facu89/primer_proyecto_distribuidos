@@ -285,11 +285,11 @@ class BarcoServicio:
             self.solicitudes_en_vuelo.pop(solicitud_id, None)
 
         msg = f"Resolución de Central para Solicitud #{solicitud_id} '{accion}' (Barco {barco_origen}): [{decision.upper()}]"
-        logging.info(f"[L:{l_actual}] {msg}")
         registrar_evento(msg, l_actual)
 
         if barco_origen == self.id:
             self.notificar_resolucion(accion, decision, solicitud_id)
+            return {"entregado": True}
         else:
             destino_uri = self.peers_uris.get(barco_origen)
             if not destino_uri:
@@ -306,12 +306,15 @@ class BarcoServicio:
                     proxy._pyroTimeout = 3.0
                     proxy.notificar_resolucion(accion, decision, solicitud_id)
                     logging.info(f"Resolución de #{solicitud_id} notificada al Barco {barco_origen}")
+                    return {"entregado": True}
                 except Exception as e:
                     logging.error(f"No se pudo notificar resolución al Barco {barco_origen}: {e}")
+                    registrar_evento(f"Fallo de entrega de Solicitud #{solicitud_id} a Barco {barco_origen}: {e}", l_actual)
+                    return {"entregado": False, "motivo": f"nodo no disponible ({e})"}
             else:
                 logging.warning(f"No se encontró URI para notificar al Barco {barco_origen}")
-
-        return True
+                registrar_evento(f"Fallo de entrega de Solicitud #{solicitud_id} a Barco {barco_origen}: URI no encontrada", l_actual)
+                return {"entregado": False, "motivo": "nodo no registrado o URI no encontrada"}
 
     def notificar_resolucion(self, accion, decision, solicitud_id=None):
         """Invocado por el Primario hacia este barco cuando la Central resolvió su solicitud."""
@@ -324,7 +327,6 @@ class BarcoServicio:
         estado_str = decision.upper()
         msg = f"Respuesta de Central para solicitud{sol_str} '{accion}': [{estado_str}]"
 
-        logging.info(f"[L:{l_actual}] {msg}")
         registrar_evento(msg, l_actual)
         print(f"\n>>> [{estado_str}] Solicitud{sol_str} '{accion}' ha sido {decision.lower()} por la Central <<<\n> ", end="", flush=True)
         return True
