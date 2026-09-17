@@ -552,12 +552,78 @@ class DashboardHandler(BaseHTTPRequestHandler):
             # Le permite al dashboard saber si ESTA central es la principal
             self._send_json({"id": CENTRAL_ID, "soy_principal": soy_principal})
 
+        elif self.path == '/api/solicitudes':
+            with lock_central:
+                data = {
+                    "solicitudes": list(solicitudes_recibidas.values()),
+                    "soy_principal": soy_principal
+                }
+            self._send_json(data)
+
         elif self.path == '/api/centrales':
             # Direcciones de dashboard conocidas, para que el frontend pueda
             # buscar la nueva principal si esta central se cae
             mi_info = {"id": CENTRAL_ID, "host": HTTP_HOST, "http_port": HTTP_PORT}
             self._send_json([mi_info] + peers_http)
 
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
+
+    def do_POST(self):
+        if self.path == '/api/solicitudes/resolver':
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(content_length)
+                payload = json.loads(body.decode('utf-8'))
+
+                sol_id = payload.get("id")
+                decision = payload.get("decision")
+
+                if not soy_principal:
+                    self.send_response(403)
+                    self.send_header('Content-type', 'application/json')
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        "ok": False,
+                        "error": "Esta Central es de RESPALDO. Solo la Central Principal puede resolver solicitudes."
+                    }).encode())
+                    return
+
+                if sol_id is None or decision not in ["aceptada", "rechazada"]:
+                    self.send_response(400)
+                    self.send_header('Content-type', 'application/json')
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        "ok": False,
+                        "error": "Parámetros inválidos ('id' y 'decision' requeridos)"
+                    }).encode())
+                    return
+
+                exito = _resolver_solicitud(int(sol_id), decision)
+                with lock_central:
+                    sol = solicitudes_recibidas.get(int(sol_id), {})
+
+                self._send_json({
+                    "ok": exito,
+                    "id": sol_id,
+                    "estado": sol.get("estado")
+                })
+            except Exception as e:
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({"ok": False, "error": str(e)}).encode())
         else:
             self.send_response(404)
             self.end_headers()

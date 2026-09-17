@@ -323,6 +323,211 @@
         @keyframes parpadeo {
             50% { opacity: 0.35; }
         }
+
+        /* --- Panel Táctico de Solicitudes (Fase 2) --- */
+        .hud-requests {
+            top: 165px;
+            right: 18px;
+            width: 350px;
+            max-height: calc(100vh - 330px);
+            display: flex;
+            flex-direction: column;
+            padding: 0;
+            overflow: hidden;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .requests-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 9px 12px;
+            background: rgba(5, 30, 5, 0.95);
+            border-bottom: 1px solid var(--crt-green-dim);
+            cursor: pointer;
+            font-weight: bold;
+            letter-spacing: 1px;
+            font-size: 13px;
+        }
+
+        .requests-header:hover {
+            background: rgba(10, 50, 10, 0.95);
+            color: #fff;
+        }
+
+        .requests-title-text {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .requests-arrow {
+            font-size: 14px;
+            color: var(--crt-green);
+            transition: transform 0.25s ease;
+            user-select: none;
+            display: inline-block;
+        }
+
+        /* Flecha rota al colapsar panel */
+        .hud-requests.collapsed .requests-arrow {
+            transform: rotate(-90deg);
+        }
+
+        .hud-requests.collapsed .requests-body {
+            display: none;
+        }
+
+        .requests-body {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            padding: 8px 10px;
+        }
+
+        .requests-list {
+            overflow-y: auto;
+            max-height: calc(100vh - 400px);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding-right: 4px;
+        }
+
+        .requests-list::-webkit-scrollbar {
+            width: 4px;
+        }
+        .requests-list::-webkit-scrollbar-thumb {
+            background: var(--crt-green);
+        }
+
+        .request-card {
+            background: rgba(0, 20, 0, 0.75);
+            border: 1px solid var(--crt-green-dim);
+            padding: 8px 10px;
+            box-shadow: 0 0 6px rgba(0, 40, 0, 0.6);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            transition: border-color 0.2s;
+        }
+
+        .request-card:hover {
+            border-color: var(--crt-green);
+        }
+
+        .request-card.pending {
+            border-left: 3px solid var(--crt-gold);
+        }
+
+        .request-card.failed {
+            border-left: 3px solid var(--crt-red);
+        }
+
+        .request-card.resolved {
+            border-left: 3px solid var(--crt-green);
+            opacity: 0.75;
+        }
+
+        .card-header-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .card-action-title {
+            color: var(--crt-cyan);
+            font-size: 13px;
+            letter-spacing: 0.5px;
+        }
+
+        .card-meta {
+            font-size: 11px;
+            color: rgba(51, 255, 51, 0.7);
+        }
+
+        .card-status-badge {
+            display: inline-block;
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 2px;
+            font-weight: bold;
+            margin: 2px 0;
+            text-transform: uppercase;
+        }
+
+        .badge-pending {
+            background: rgba(255, 221, 51, 0.15);
+            border: 1px solid var(--crt-gold);
+            color: var(--crt-gold);
+            text-shadow: 0 0 4px var(--crt-gold);
+        }
+
+        .badge-failed {
+            background: rgba(255, 51, 51, 0.15);
+            border: 1px solid var(--crt-red);
+            color: var(--crt-red);
+            text-shadow: 0 0 4px var(--crt-red);
+        }
+
+        .badge-resolved {
+            background: rgba(51, 255, 51, 0.15);
+            border: 1px solid var(--crt-green);
+            color: var(--crt-green);
+        }
+
+        .card-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 4px;
+        }
+
+        .card-actions button {
+            flex: 1;
+            margin-top: 0;
+            padding: 4px 6px;
+            font-size: 11px;
+        }
+
+        .btn-accept {
+            border-color: var(--crt-green);
+            color: var(--crt-green);
+        }
+
+        .btn-accept:hover:not(:disabled) {
+            background: var(--crt-green);
+            color: #000;
+        }
+
+        .btn-reject {
+            border-color: var(--crt-red);
+            color: var(--crt-red);
+        }
+
+        .btn-reject:hover:not(:disabled) {
+            background: var(--crt-red);
+            color: #000;
+            box-shadow: 0 0 12px var(--crt-red);
+        }
+
+        .tactical-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            border-color: #666;
+            color: #888;
+        }
+
+        .requests-backup-notice {
+            background: rgba(255, 51, 51, 0.15);
+            border: 1px dashed var(--crt-red);
+            color: var(--crt-red);
+            font-size: 11px;
+            padding: 6px;
+            text-align: center;
+            margin-bottom: 6px;
+            letter-spacing: 0.5px;
+        }
     </style>
 </head>
 <body>
@@ -348,8 +553,29 @@
         <div>ESTADO DE FUERZAS NAVALES</div>
         <div>UNIDADES ACTIVAS: <span id="active-count" style="color: #fff; font-weight: bold;">0</span></div>
         <div>COORDINADOR/PRIMARIO: <span id="primary-id" style="color: var(--crt-gold); font-weight: bold;">BUSCANDO...</span></div>
+        <div>PETICIONES FLOTA: <span id="requests-badge" style="color: var(--crt-gold); font-weight: bold;">0 PENDIENTES</span></div>
         <div>MODO ELECCION: <span style="color: var(--crt-cyan);">CHANG & ROBERTS (RING)</span></div>
         <div>CONSISTENCIA: <span style="color: var(--crt-green);">RELOJES DE LAMPORT</span></div>
+    </div>
+
+    <!-- Tactical Requests HUD Panel (Fase 2) -->
+    <div class="hud-panel hud-requests" id="hud-requests">
+        <div class="requests-header" onclick="toggleRequestsPanel()">
+            <span class="requests-title-text">
+                ❖ PETICIONES TÁCTICAS <span id="requests-header-count" style="color: var(--crt-gold);">(0)</span>
+            </span>
+            <span id="requests-arrow" class="requests-arrow">▼</span>
+        </div>
+        <div id="requests-body" class="requests-body">
+            <div id="requests-backup-notice" class="requests-backup-notice" style="display: none;">
+                ⚠ MODO RESPALDO (SOLO LECTURA)
+            </div>
+            <div class="requests-list" id="requests-list">
+                <div style="font-size: 11px; color: rgba(51, 255, 51, 0.5); text-align: center; padding: 12px 0;">
+                    [ SIN PETICIONES PENDIENTES ]
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Bottom Events Console HUD -->
@@ -752,11 +978,161 @@ RELOJ LAMPORT [L]: ${ship.lamport ?? 0}
         }
     }
 
+    // --- 7. Gestión de Solicitudes Tácticas (Fase 2) ---
+    function toggleRequestsPanel() {
+        const panel = document.getElementById('hud-requests');
+        if (panel) panel.classList.toggle('collapsed');
+    }
+
+    let lastSolicitudesJson = "";
+    let soyPrincipalActual = true;
+
+    async function fetchSolicitudes() {
+        try {
+            const res = await fetch('/api/solicitudes');
+            if (!res.ok) return;
+            const data = await res.json();
+            const asJson = JSON.stringify(data);
+            if (asJson === lastSolicitudesJson) return;
+            lastSolicitudesJson = asJson;
+
+            soyPrincipalActual = (data.soy_principal !== false);
+            const notice = document.getElementById('requests-backup-notice');
+            if (notice) notice.style.display = soyPrincipalActual ? 'none' : 'block';
+
+            const solicitudes = data.solicitudes || [];
+            const activas = solicitudes.filter(s => s.estado === 'pendiente' || (s.estado && s.estado.startsWith('no_entregada_')));
+
+            // Actualizar contadores del HUD
+            const badge = document.getElementById('requests-badge');
+            if (badge) {
+                badge.innerText = `${activas.length} PENDIENTES`;
+                badge.style.color = activas.length > 0 ? 'var(--crt-gold)' : 'rgba(51, 255, 51, 0.6)';
+            }
+            const headerCount = document.getElementById('requests-header-count');
+            if (headerCount) {
+                headerCount.innerText = `(${activas.length})`;
+                headerCount.style.color = activas.length > 0 ? 'var(--crt-gold)' : 'var(--crt-green)';
+            }
+
+            const listElem = document.getElementById('requests-list');
+            if (!listElem) return;
+
+            if (solicitudes.length === 0) {
+                listElem.innerHTML = `
+                    <div style="font-size: 11px; color: rgba(51, 255, 51, 0.5); text-align: center; padding: 12px 0;">
+                        [ SIN PETICIONES PENDIENTES ]
+                    </div>
+                `;
+                return;
+            }
+
+            // Ordenar: activas primero (más recientes arriba), luego resueltas
+            const sorted = [...solicitudes].sort((a, b) => {
+                const aActiva = a.estado === 'pendiente' || (a.estado && a.estado.startsWith('no_entregada_'));
+                const bActiva = b.estado === 'pendiente' || (b.estado && b.estado.startsWith('no_entregada_'));
+                if (aActiva && !bActiva) return -1;
+                if (!aActiva && bActiva) return 1;
+                return (b.id || 0) - (a.id || 0);
+            });
+
+            listElem.innerHTML = '';
+            sorted.forEach(sol => {
+                const isPending = sol.estado === 'pendiente';
+                const isFailed = sol.estado && sol.estado.startsWith('no_entregada_');
+
+                let cardClass = 'request-card ';
+                let badgeClass = 'card-status-badge ';
+                let statusText = sol.estado || 'PENDIENTE';
+
+                if (isPending) {
+                    cardClass += 'pending';
+                    badgeClass += 'badge-pending';
+                    statusText = '⏳ PENDIENTE';
+                } else if (isFailed) {
+                    cardClass += 'failed';
+                    badgeClass += 'badge-failed';
+                    statusText = `⚠ NO ENTREGADA (${sol.estado.replace('no_entregada_', '').toUpperCase()})`;
+                } else {
+                    cardClass += 'resolved';
+                    badgeClass += 'badge-resolved';
+                    statusText = `✔ ${sol.estado.toUpperCase()}`;
+                }
+
+                const date = new Date((sol.timestamp || Date.now() / 1000) * 1000);
+                const timeStr = date.toISOString().substring(11, 19) + ' UTC';
+
+                let actionsHtml = '';
+                if (isPending || isFailed) {
+                    const disabledAttr = !soyPrincipalActual ? 'disabled' : '';
+                    actionsHtml = `
+                        <div class="card-actions">
+                            <button class="tactical-btn btn-accept" ${disabledAttr} onclick="resolverSolicitudWeb(${sol.id}, 'aceptada', this)">
+                                ✔ ACEPTAR
+                            </button>
+                            <button class="tactical-btn btn-reject" ${disabledAttr} onclick="resolverSolicitudWeb(${sol.id}, 'rechazada', this)">
+                                ✖ RECHAZAR
+                            </button>
+                        </div>
+                    `;
+                }
+
+                const card = document.createElement('div');
+                card.className = cardClass;
+                card.id = `req-card-${sol.id}`;
+                card.innerHTML = `
+                    <div class="card-header-row">
+                        <span style="color: #fff;">SOLICITUD #${sol.id}</span>
+                        <span style="color: var(--crt-green);">BARCO ${sol.origen}</span>
+                    </div>
+                    <div class="card-action-title">ACCIÓN: ${sol.accion.replace(/_/g, ' ').toUpperCase()}</div>
+                    <div class="card-meta">HORA: ${timeStr} | L:${sol.lamport || 0}</div>
+                    <div><span class="${badgeClass}">${statusText}</span></div>
+                    ${actionsHtml}
+                `;
+                listElem.appendChild(card);
+            });
+
+        } catch (e) {
+            console.error("Error al consultar /api/solicitudes:", e);
+        }
+    }
+
+    async function resolverSolicitudWeb(id, decision, btnElem) {
+        const card = document.getElementById(`req-card-${id}`);
+        const buttons = card ? card.querySelectorAll('button') : [];
+        buttons.forEach(b => { b.disabled = true; });
+        if (btnElem) btnElem.innerText = 'ENVIANDO...';
+
+        try {
+            const res = await fetch('/api/solicitudes/resolver', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: id, decision: decision })
+            });
+
+            const data = await res.json();
+            if (!res.ok) {
+                alert(data.error || 'Error al resolver la solicitud.');
+            }
+            // Forzar actualización inmediata
+            lastSolicitudesJson = "";
+            await fetchSolicitudes();
+            await fetchEventos();
+        } catch (e) {
+            console.error("Error al enviar resolución:", e);
+            alert("Error de conexión al enviar resolución.");
+            buttons.forEach(b => { b.disabled = false; });
+        }
+    }
+
     // Polling continuo
     setInterval(fetchState, 2000);
     setInterval(fetchEventos, 2000);
+    setInterval(fetchSolicitudes, 1500);
     fetchState();
     fetchEventos();
+    fetchSolicitudes();
 
 </script>
 </body>
